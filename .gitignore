@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.env
+*.db
+static/plannings/
+static/pauses/
+temp/
+.DS_Store

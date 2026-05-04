@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SuperPlanning Pro</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <i data-lucide="zap" class="logo-icon"></i>
+                <h2>SuperPlanning</h2>
+                <span class="version-badge">vWeb 1.0</span>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <button class="nav-btn active" data-tab="planning">
+                    <i data-lucide="calendar"></i> Planification
+                </button>
+                <button class="nav-btn" data-tab="equipe">
+                    <i data-lucide="users"></i> Équipe
+                </button>
+                <button class="nav-btn" data-tab="interim">
+                    <i data-lucide="user-plus"></i> Intérim & Absences
+                </button>
+                <button class="nav-btn" data-tab="stats">
+                    <i data-lucide="bar-chart-2"></i> Bilan Pénibilité
+                </button>
+                <button class="nav-btn" data-tab="archives">
+                    <i data-lucide="archive"></i> Archives
+                </button>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- TAB: PLANNING -->
+            <section id="tab-planning" class="tab-pane active">
+                <div class="page-header">
+                    <h1>Planification Journalière</h1>
+                    <div class="date-selector glass-card">
+                        <button id="btn-prev-day"><i data-lucide="chevron-left"></i></button>
+                        <input type="text" id="planning-date" value="" readonly>
+                        <button id="btn-next-day"><i data-lucide="chevron-right"></i></button>
+                    </div>
+                </div>
+
+                <div class="toolbar glass-card">
+                    <button class="btn btn-secondary" id="btn-save-planning"><i data-lucide="save"></i> Sauvegarder</button>
+                    <button class="btn btn-secondary" id="btn-load-planning"><i data-lucide="folder-open"></i> Charger</button>
+                    <button class="btn btn-secondary" id="btn-refresh-planning"><i data-lucide="refresh-cw"></i> Rafraîchir</button>
+                    <div class="spacer"></div>
+                </div>
+
+                <div class="planning-grid-container glass-card">
+                    <div class="grid-header">
+                        <div class="col-name">NOM</div>
+                        <div class="col-matin">MATIN</div>
+                        <div class="col-aprem">APRÈS-MIDI</div>
+                    </div>
+                    <div class="planning-list" id="planning-list">
+                        <!-- Lignes générées via JS -->
+                    </div>
+                </div>
+
+                <div class="footer-actions glass-card">
+                    <button class="btn btn-warning btn-lg" id="btn-generate-pauses"><i data-lucide="coffee"></i> PAUSES</button>
+                    <button class="btn btn-primary btn-lg" id="btn-generate-planning"><i data-lucide="rocket"></i> GÉNÉRER LE PLANNING PRO</button>
+                </div>
+            </section>
+
+            <!-- TAB: EQUIPE -->
+            <section id="tab-equipe" class="tab-pane">
+                <div class="page-header">
+                    <h1>Gestion de l'Équipe</h1>
+                </div>
+
+                <div class="form-card glass-card">
+                    <form id="add-emp-form">
+                        <input type="text" id="emp-nom" placeholder="NOM Prénom" required>
+                        <select id="emp-statut">
+                            <option value="CDI">CDI</option>
+                            <option value="Interimaire">Interimaire</option>
+                            <option value="Etudiant">Etudiant</option>
+                        </select>
+                        <label class="toggle-container">
+                            <input type="checkbox" id="emp-cls">
+                            <span class="toggle-slider"></span>
+                            Interdit CLS
+                        </label>
+                        <select id="emp-handicap">
+                            <option value="Aucun">Aucun</option>
+                            <option value="Caisse Impaire Uniq.">Caisse Impaire Uniq.</option>
+                            <option value="Caisse Paire Uniq.">Caisse Paire Uniq.</option>
+                        </select>
+                        <button type="submit" class="btn btn-primary"><i data-lucide="plus"></i> Ajouter</button>
+                    </form>
+                </div>
+
+                <div class="employee-list" id="employee-list">
+                    <!-- Généré via JS -->
+                </div>
+            </section>
+
+            <!-- TAB: INTERIM -->
+            <section id="tab-interim" class="tab-pane">
+                <div class="page-header">
+                    <h1>Intérim & Absences</h1>
+                </div>
+                
+                <div class="interim-container">
+                    <div class="interim-col glass-card">
+                        <h2>Nouvelle Demande</h2>
+                        <div class="interim-form">
+                            <div class="form-row">
+                                <label>Absent:</label>
+                                <select id="interim-absent"></select>
+                            </div>
+                            <div class="form-row">
+                                <label>Du:</label>
+                                <input type="text" id="interim-start" placeholder="DD/MM/YYYY">
+                                <label>Au:</label>
+                                <input type="text" id="interim-end" placeholder="DD/MM/YYYY">
+                            </div>
+                            <button class="btn btn-secondary w-100" id="btn-generate-interim-grid">Générer la grille</button>
+                            
+                            <div class="interim-grid" id="interim-grid"></div>
+                            
+                            <textarea id="interim-email" rows="6" placeholder="Email auto généré..."></textarea>
+                            
+                            <div class="action-row">
+                                <button class="btn btn-secondary" id="btn-write-email"><i data-lucide="mail"></i> Rédiger Email</button>
+                                <button class="btn btn-warning" id="btn-save-interim"><i data-lucide="save"></i> Mettre en attente</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="interim-col glass-card">
+                        <h2>Retours Agence</h2>
+                        <div class="interim-requests" id="interim-requests-list">
+                            <!-- Généré via JS -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: STATS -->
+            <section id="tab-stats" class="tab-pane">
+                <div class="page-header">
+                    <h1>Bilan Pénibilité</h1>
+                    <p>Analyse sur les 7 derniers jours glissants par rapport à la date de planification.</p>
+                </div>
+                <div class="stats-container glass-card" id="stats-container">
+                    <p>Appuyez sur rafraîchir pour charger les statistiques.</p>
+                </div>
+                <button class="btn btn-primary" id="btn-load-stats"><i data-lucide="refresh-cw"></i> Rafraîchir Stats</button>
+            </section>
+
+            <!-- TAB: ARCHIVES -->
+            <section id="tab-archives" class="tab-pane">
+                <div class="page-header">
+                    <h1>Archives des Plannings</h1>
+                </div>
+                <div class="archives-grid" id="archives-list">
+                    <!-- Généré via JS -->
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <div class="modal" id="edit-emp-modal">
+        <div class="modal-content glass-card">
+            <h2>Modifier l'employé</h2>
+            <form id="edit-emp-form">
+                <input type="hidden" id="edit-emp-id">
+                <input type="text" id="edit-emp-nom" required>
+                <select id="edit-emp-statut">
+                    <option value="CDI">CDI</option>
+                    <option value="Interimaire">Interimaire</option>
+                    <option value="Etudiant">Etudiant</option>
+                </select>
+                <label class="toggle-container">
+                    <input type="checkbox" id="edit-emp-cls">
+                    <span class="toggle-slider"></span>
+                    Interdit CLS
+                </label>
+                <select id="edit-emp-handicap">
+                    <option value="Aucun">Aucun</option>
+                    <option value="Caisse Impaire Uniq.">Caisse Impaire Uniq.</option>
+                    <option value="Caisse Paire Uniq.">Caisse Paire Uniq.</option>
+                </select>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('edit-emp-modal')">Annuler</button>
+                    <button type="submit" class="btn btn-primary">Enregistrer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="/static/js/main.js"></script>
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+</html>
