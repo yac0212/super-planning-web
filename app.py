@@ -1,11 +1,31 @@
 import os
-from flask import Flask, request, jsonify, render_template, send_from_directory, url_for
+from flask import Flask, request, jsonify, render_template, send_from_directory, url_for, Response
 from datetime import datetime, timedelta
 import math
 import database as db
 import algo
 
 app = Flask(__name__)
+
+# --- SÉCURITÉ : Mot de passe ---
+ADMIN_USERNAME = "yacine"
+ADMIN_PASSWORD = "superpassword"  # Tu pourras changer ce mot de passe
+
+def check_auth(username, password):
+    return username == ADMIN_USERNAME and password == ADMIN_PASSWORD
+
+def authenticate():
+    return Response(
+        'Accès protégé.\n', 401,
+        {'WWW-Authenticate': 'Basic realm="Connexion SuperPlanning"'}
+    )
+
+@app.before_request
+def require_login():
+    auth = request.authorization
+    if not auth or not check_auth(auth.username, auth.password):
+        return authenticate()
+# -------------------------------
 
 DATA_DIR = os.environ.get('DATA_DIR', 'static')
 PLANNINGS_DIR = os.path.join(DATA_DIR, "plannings")
