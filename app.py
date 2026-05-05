@@ -1,30 +1,48 @@
 import os
-from flask import Flask, request, jsonify, render_template, send_from_directory, url_for, Response
+from flask import Flask, request, jsonify, render_template, send_from_directory, url_for, Response, session, redirect
 from datetime import datetime, timedelta
 import math
 import database as db
 import algo
 
 app = Flask(__name__)
+app.secret_key = "super_secret_planning_key"  # Nécessaire pour utiliser les sessions
 
-# --- SÉCURITÉ : Mot de passe ---
-ADMIN_USERNAME = "yacine"
-ADMIN_PASSWORD = "superpassword"  # Tu pourras changer ce mot de passe
+# --- SÉCURITÉ : Mot de passe unique ---
+ADMIN_PASSWORD = "inter2026"
 
-def check_auth(username, password):
-    return username == ADMIN_USERNAME and password == ADMIN_PASSWORD
-
-def authenticate():
-    return Response(
-        'Accès protégé.\n', 401,
-        {'WWW-Authenticate': 'Basic realm="Connexion SuperPlanning"'}
-    )
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        if request.form.get('password') == ADMIN_PASSWORD:
+            session['logged_in'] = True
+            return redirect('/')
+        else:
+            return '''
+                <div style="font-family: sans-serif; text-align: center; margin-top: 50px;">
+                    <h2 style="color: red;">Mot de passe incorrect</h2>
+                    <a href="/login">Réessayer</a>
+                </div>
+            '''
+    return '''
+        <div style="font-family: sans-serif; max-width: 400px; margin: 100px auto; padding: 20px; border: 1px solid #ccc; border-radius: 10px; text-align: center; background-color: #f9f9f9;">
+            <h2>Accès Protégé</h2>
+            <form method="post">
+                <input type="password" name="password" placeholder="Mot de passe" style="padding: 10px; width: 80%; margin-bottom: 15px; border-radius: 5px; border: 1px solid #ccc;" autofocus required>
+                <br>
+                <button type="submit" style="padding: 10px 20px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">Se connecter</button>
+            </form>
+        </div>
+    '''
 
 @app.before_request
 def require_login():
-    auth = request.authorization
-    if not auth or not check_auth(auth.username, auth.password):
-        return authenticate()
+    # Autorise l'accès à la page de login et aux fichiers statiques sans mot de passe
+    if request.path == '/login' or request.path.startswith('/static/'):
+        return
+    # Vérifie si l'utilisateur est connecté
+    if not session.get('logged_in'):
+        return redirect('/login')
 # -------------------------------
 
 DATA_DIR = os.environ.get('DATA_DIR', 'static')
