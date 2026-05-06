@@ -428,12 +428,31 @@ document.addEventListener('DOMContentLoaded', () => {
                 <span><b>${req.absent}</b><br><small>${req.dates_resume}</small></span>
                 <select id="assign-${req.id}">${options}</select>
                 <div style="display:flex; gap:5px;">
-                    <button class="btn btn-primary" onclick="assignInterim(${req.id}, '${req.absent}', '${req.grille_data}')"><i data-lucide="check"></i></button>
-                    <button class="btn btn-icon delete" onclick="deleteInterim(${req.id})"><i data-lucide="x"></i></button>
+                    <button class="btn btn-primary btn-assign-interim"
+                        data-req-id="${req.id}"
+                        data-absent="${encodeURIComponent(req.absent)}"
+                        data-grille="${encodeURIComponent(req.grille_data)}">
+                        <i data-lucide="check"></i>
+                    </button>
+                    <button class="btn btn-icon delete btn-delete-interim" data-req-id="${req.id}"><i data-lucide="x"></i></button>
                 </div>
             `;
             list.appendChild(div);
         });
+        
+        // Attacher les événements après injection HTML
+        list.querySelectorAll('.btn-assign-interim').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const req_id = btn.dataset.reqId;
+                const nom_absent = decodeURIComponent(btn.dataset.absent);
+                const grille_data = decodeURIComponent(btn.dataset.grille);
+                assignInterim(req_id, nom_absent, grille_data);
+            });
+        });
+        list.querySelectorAll('.btn-delete-interim').forEach(btn => {
+            btn.addEventListener('click', () => deleteInterim(btn.dataset.reqId));
+        });
+        
         lucide.createIcons();
     }
 
@@ -445,21 +464,30 @@ document.addEventListener('DOMContentLoaded', () => {
             req_id, nom_absent, nom_remplacant, grille_data
         });
         if (res) {
-            alert('Horaires transférés !');
+            alert(`Horaires de "${nom_absent}" transférés à "${nom_remplacant}" !`);
             loadInterimRequests();
             
-            // Vider les horaires de l'absent dans la grille de planification
-            const rows = document.querySelectorAll('.planning-row');
-            rows.forEach(row => {
-                const nomRow = row.dataset.nom.toLowerCase().trim();
-                const nomAbs = nom_absent.toLowerCase().trim();
-                if (nomRow === nomAbs || nomRow.includes(nomAbs) || nomAbs.includes(nomRow)) {
-                    row.querySelector('.m1').value = '';
-                    row.querySelector('.m2').value = '';
-                    row.querySelector('.a1').value = '';
-                    row.querySelector('.a2').value = '';
-                }
-            });
+            // Recharger le planning depuis la BDD pour effacer l'absent et mettre à jour l'intérimaire
+            const currentDateStr = document.getElementById('planning-date').value;
+            await refreshPlanning();
+            const savedData = await apiCall(`/api/planning/${currentDateStr.replace(/\//g, '-')}`);
+            if (savedData && savedData.length > 0) {
+                const planRows = document.querySelectorAll('.planning-row');
+                planRows.forEach(row => {
+                    const nomRow = row.dataset.nom.toLowerCase().trim();
+                    let saved = savedData.find(d => d.nom.toLowerCase().trim() === nomRow);
+                    if (!saved) saved = savedData.find(d => {
+                        const s = d.nom.toLowerCase().trim();
+                        return nomRow.includes(s) || s.includes(nomRow);
+                    });
+                    if (saved) {
+                        row.querySelector('.m1').value = saved.ms || '';
+                        row.querySelector('.m2').value = saved.me || '';
+                        row.querySelector('.a1').value = saved.aes || '';
+                        row.querySelector('.a2').value = saved.aee || '';
+                    }
+                });
+            }
         }
     };
 

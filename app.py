@@ -326,27 +326,28 @@ def generate_planning():
             URL.revokeObjectURL(url);
         }
 
-        document.querySelectorAll('.sub-block').forEach(b => {
-            b.addEventListener('input', function() {
-                let t = this.innerText.trim().toUpperCase();
-                this.className = 'sub-block'; 
-                if (t === 'C1' || t === 'C2') this.classList.add('bg-C1');
-                else if (t === 'C5' || t === 'C6') this.classList.add('bg-C5');
-                else if (t === 'C13' || t === 'C14') this.classList.add('bg-C13');
-                else if (t === 'CLS') this.classList.add('bg-CLS');
-                else if (t === 'PAUSE' || t === 'MISSION PAUSE') this.classList.add('bg-PAUSE');
-                else if (t === 'POLY') this.classList.add('bg-POLY');
-                else if (t === 'ABS' || t === '') this.classList.add('bg-ABS');
-                else if (['C3','C4','C7','C8','C9'].includes(t)) this.classList.add('bg-C3');
-                else if (t.startsWith('C') && t.length > 1) this.classList.add('bg-C_OTHER');
-            });
-        });
-        
-        // Auto-download on generation
-        window.onload = function() {
-            // Uncomment the line below to force download automatically when opened
-            // downloadHTML();
-        };
+        function applyColor(el) {{
+            let t = (el.textContent || el.innerText || '').trim().toUpperCase();
+            // Réinitialiser toutes les classes de couleur
+            el.classList.remove('bg-C1','bg-C2','bg-C5','bg-C6','bg-C13','bg-C14','bg-CLS','bg-PAUSE','bg-POLY','bg-ABS','bg-C3','bg-C4','bg-C7','bg-C8','bg-C9','bg-C_OTHER');
+            if (t === 'C1' || t === 'C2') el.classList.add('bg-C1');
+            else if (t === 'C5' || t === 'C6') el.classList.add('bg-C5');
+            else if (t === 'C13' || t === 'C14') el.classList.add('bg-C13');
+            else if (t === 'CLS') el.classList.add('bg-CLS');
+            else if (t === 'PAUSE' || t === 'MISSION PAUSE' || t === 'PAUS') el.classList.add('bg-PAUSE');
+            else if (t === 'POLY') el.classList.add('bg-POLY');
+            else if (t === 'ABS' || t === '') el.classList.add('bg-ABS');
+            else if (['C3','C4','C7','C8','C9'].includes(t)) el.classList.add('bg-C3');
+            else if (t.startsWith('C') && t.length > 1) el.classList.add('bg-C_OTHER');
+        }}
+
+        document.querySelectorAll('.sub-block').forEach(b => {{
+            // Appliquer les couleurs à l'édition
+            b.addEventListener('input', function() {{ applyColor(this); }});
+            b.addEventListener('keyup', function() {{ applyColor(this); }});
+            // Réappliquer la couleur au focus perdu
+            b.addEventListener('blur', function() {{ applyColor(this); }});
+        }});
     </script>
     </body></html>
     """
