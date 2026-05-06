@@ -212,25 +212,22 @@ def generate_planning():
         
         .hour-cell {{ display: flex; width: 100%; height: 100%; position: relative; }}
         
-        .sub-block {{ flex: 1; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 10px; cursor: text; outline: none; transition: background 0.2s; position: relative; margin: 2px; border-radius: 4px; border: 1px solid transparent; box-sizing: border-box; }}
-        .sub-block:not(.bg-ABS):not(:empty) {{ box-shadow: 0 1px 2px rgba(0,0,0,0.05); }}
-        
-        .sub-block {{ border-right: 1px dashed rgba(0,0,0,0.03); margin: 2px 1px; }}
+        .sub-block {{ flex: 1; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 10px; cursor: text; outline: none; position: relative; margin: 0; border-radius: 0; box-sizing: border-box; border-right: 1px solid #e0e0e0; }}
         .sub-block:last-child {{ border-right: none; }}
         
-        .sub-block:focus {{ background: #fff !important; color: #333 !important; border: 2px solid #3498db; z-index: 10; box-shadow: 0 0 10px rgba(52, 152, 219, 0.3); }}
+        .sub-block:focus {{ background: #fff !important; color: #333 !important; border: 2px solid #3498db; z-index: 10; }}
         
-        .bg-CLS {{ background: #fde047 !important; color: #854d0e !important; border: 1px solid #facc15 !important; }}
-        .bg-C1, .bg-C2 {{ background: #be123c !important; color: white !important; border: 1px solid #9f1239 !important; }}
-        .bg-C5, .bg-C6 {{ background: #ea580c !important; color: white !important; border: 1px solid #c2410c !important; }}
-        .bg-C13, .bg-C14 {{ background: #16a34a !important; color: white !important; border: 1px solid #15803d !important; }}
-        .bg-PAUSE {{ background: #a855f7 !important; color: white !important; border: 1px solid #9333ea !important; font-size: 9px; letter-spacing: -0.5px; }}
-        .bg-POLY {{ background: #f3f4f6 !important; color: #4b5563 !important; border: 1px solid #e5e7eb !important; font-style: italic; }}
-        .bg-ABS {{ background: #ffffff !important; color: transparent !important; border: none !important; }}
+        .bg-CLS {{ background: #fde047 !important; color: #854d0e !important; }}
+        .bg-C1, .bg-C2 {{ background: #be123c !important; color: white !important; }}
+        .bg-C5, .bg-C6 {{ background: #ea580c !important; color: white !important; }}
+        .bg-C13, .bg-C14 {{ background: #16a34a !important; color: white !important; }}
+        .bg-PAUSE {{ background: #a855f7 !important; color: white !important; font-size: 9px; letter-spacing: -0.5px; }}
+        .bg-POLY {{ background: #f3f4f6 !important; color: #4b5563 !important; font-style: italic; }}
+        .bg-ABS {{ background: transparent !important; color: transparent !important; }}
         
-        .bg-C3, .bg-C4, .bg-C7, .bg-C8, .bg-C9 {{ background: #ffffff !important; color: #333 !important; border: 1px solid #ccc !important; }}
+        .bg-C3, .bg-C4, .bg-C7, .bg-C8, .bg-C9 {{ background: transparent !important; color: #333 !important; }}
         [class^="bg-C"]:not(.bg-C1):not(.bg-C2):not(.bg-C5):not(.bg-C6):not(.bg-C13):not(.bg-C14):not(.bg-C3):not(.bg-C4):not(.bg-C7):not(.bg-C8):not(.bg-C9) {{ 
-            background: #ffffff !important; color: #333 !important; border: 1px solid #ccc !important; 
+            background: transparent !important; color: #333 !important; 
         }}
         
         @media print {{ 
