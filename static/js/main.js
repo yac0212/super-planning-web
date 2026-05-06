@@ -431,6 +431,51 @@ document.addEventListener('DOMContentLoaded', () => {
         lucide.createIcons();
     }
 
+    // === UPLOAD FICHIERS ===
+    document.getElementById('btn-upload-files').addEventListener('click', () => {
+        document.getElementById('upload-input').click();
+    });
+
+    document.getElementById('upload-input').addEventListener('change', async (e) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
+
+        const statusDiv = document.getElementById('upload-status');
+        statusDiv.style.display = 'block';
+        statusDiv.innerHTML = `<div class="glass-card" style="padding:12px; color: var(--text-muted);">⏳ Envoi de ${files.length} fichier(s) en cours...</div>`;
+
+        const formData = new FormData();
+        for (let f of files) {
+            formData.append('files', f);
+        }
+
+        try {
+            const res = await fetch('/api/upload', { method: 'POST', body: formData });
+            const data = await res.json();
+
+            if (data.success) {
+                let msg = `<div class="glass-card" style="padding:12px;">`;
+                msg += `<p style="color:#16a34a; font-weight:600;">✅ ${data.uploaded.length} fichier(s) importé(s) avec succès !</p>`;
+                if (data.uploaded.length > 0) {
+                    msg += `<ul style="font-size:12px; color: var(--text-muted); margin-top:5px;">` + data.uploaded.map(f => `<li>${f}</li>`).join('') + `</ul>`;
+                }
+                if (data.errors.length > 0) {
+                    msg += `<p style="color:#dc2626; margin-top:8px;">⚠️ Erreurs : ${data.errors.join(', ')}</p>`;
+                }
+                msg += `</div>`;
+                statusDiv.innerHTML = msg;
+                loadArchives(); // Rafraîchir la liste
+            } else {
+                statusDiv.innerHTML = `<div class="glass-card" style="padding:12px; color:#dc2626;">❌ Erreur : ${data.message}</div>`;
+            }
+        } catch (err) {
+            statusDiv.innerHTML = `<div class="glass-card" style="padding:12px; color:#dc2626;">❌ Erreur de connexion.</div>`;
+        }
+
+        // Réinitialiser l'input pour permettre de re-sélectionner les mêmes fichiers
+        e.target.value = '';
+    });
+
     // Init
     refreshPlanning();
 });

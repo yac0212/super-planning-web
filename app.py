@@ -358,6 +358,33 @@ def generate_planning():
         
     return jsonify({'success': True, 'url': f'/files/plannings/{nom_fichier}'})
 
+# === UPLOAD FICHIERS ===
+@app.route('/api/upload', methods=['POST'])
+def upload_files():
+    if 'files' not in request.files:
+        return jsonify({'success': False, 'message': 'Aucun fichier reçu'}), 400
+    
+    files = request.files.getlist('files')
+    uploaded = []
+    errors = []
+    
+    for file in files:
+        filename = file.filename
+        if not filename.endswith('.html'):
+            errors.append(f'{filename}: pas un fichier HTML')
+            continue
+        
+        # Détecter si c'est un planning ou une feuille de pause
+        if 'Pauses' in filename or 'pauses' in filename or 'PAUSES' in filename:
+            dest = os.path.join(PAUSES_DIR, filename)
+        else:
+            dest = os.path.join(PLANNINGS_DIR, filename)
+        
+        file.save(dest)
+        uploaded.append(filename)
+    
+    return jsonify({'success': True, 'uploaded': uploaded, 'errors': errors})
+
 # === INTERIM ===
 @app.route('/api/interim', methods=['GET'])
 def get_interim():

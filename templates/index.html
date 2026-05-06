@@ -166,6 +166,16 @@
                 <div class="page-header">
                     <h1>Archives des Plannings</h1>
                 </div>
+
+                <div class="toolbar glass-card" style="margin-bottom: 15px;">
+                    <span style="color: var(--text-muted); font-size: 13px;">Importez vos anciens fichiers HTML depuis votre ordinateur :</span>
+                    <div class="spacer"></div>
+                    <input type="file" id="upload-input" multiple accept=".html" style="display:none">
+                    <button class="btn btn-primary" id="btn-upload-files"><i data-lucide="upload"></i> Importer mes plannings (.html)</button>
+                </div>
+
+                <div id="upload-status" style="display:none; margin-bottom:15px;"></div>
+
                 <div class="archives-grid" id="archives-list">
                     <!-- Généré via JS -->
                 </div>
