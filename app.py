@@ -389,92 +389,117 @@ def upload_files():
 @app.route('/api/rebuild_db', methods=['POST'])
 def rebuild_db():
     import re
+    import traceback
     
-    fichiers = [f for f in os.listdir(PLANNINGS_DIR) if f.endswith('.html')]
+    try:
+        fichiers = [f for f in os.listdir(PLANNINGS_DIR) if f.endswith('.html')]
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Erreur lecture dossier: {str(e)}'}), 500
+    
     total_entries = 0
     fichiers_traites = 0
+    erreurs_fichiers = []
+    
+    slots_order = []
+    for h in range(9, 20):
+        for m in [0, 15, 30, 45]:
+            slots_order.append((h, m))
     
     for fichier in fichiers:
-        # Extraire la date depuis le nom de fichier (Planning_A4_DD-MM-YYYY.html)
-        match_date = re.search(r'(\d{2})-(\d{2})-(\d{4})', fichier)
-        if not match_date:
-            continue
-        
-        date_str = f"{match_date.group(1)}/{match_date.group(2)}/{match_date.group(3)}"
-        
-        filepath = os.path.join(PLANNINGS_DIR, fichier)
-        with open(filepath, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # Extraire les lignes d'employés : <tr><td class='name'>NOM</td>...
-        lignes = re.findall(r"<tr><td class=['\"]name['\"][^>]*>(.*?)</td>(.*?)</tr>", content, re.DOTALL)
-        
-        if not lignes:
-            continue
-        
-        fichiers_traites += 1
-        entries = []
-        
-        for nom_html, contenu_ligne in lignes:
-            nom = nom_html.strip()
-            if not nom:
+        try:
+            match_date = re.search(r'(\d{2})-(\d{2})-(\d{4})', fichier)
+            if not match_date:
                 continue
             
-            # Extraire toutes les tâches par ordre (4 blocs par heure, de 9h à 19h = 44 blocs)
-            blocs = re.findall(r"<div class=['\"]sub-block[^'\"]*['\"][^>]*>(.*?)</div>", contenu_ligne, re.DOTALL)
-            taches = [b.strip() for b in blocs]
+            date_str = f"{match_date.group(1)}/{match_date.group(2)}/{match_date.group(3)}"
+            filepath = os.path.join(PLANNINGS_DIR, fichier)
             
-            # Reconstruire les plages horaires depuis les blocs
-            # 9h = index 0..3, 10h = 4..7, ..., 18h = 36..39
-            heures = list(range(9, 20))
-            slots_order = []
-            for h in heures:
-                for m in [0, 15, 30, 45]:
-                    slots_order.append((h, m))
+            # Essayer utf-8, puis latin-1 si ça échoue
+            content = None
+            for enc in ['utf-8', 'latin-1', 'cp1252']:
+                try:
+                    with open(filepath, 'r', encoding=enc, errors='ignore') as f:
+                        content = f.read()
+                    break
+                except Exception:
+                    continue
             
-            # Trouver les plages matin et après-midi
-            # On cherche les blocs non-vides consécutifs
-            plage_active = []
-            plages = []
+            if not content:
+                erreurs_fichiers.append(f"{fichier}: impossible de lire")
+                continue
             
-            for i, t in enumerate(taches[:len(slots_order)]):
-                t_clean = t.upper().strip()
-                if t_clean and t_clean not in ['', 'ABS']:
-                    if not plage_active:
-                        plage_active = [i]
-                    plage_active.append(i)
-                else:
-                    if plage_active:
-                        plages.append((plage_active[0], plage_active[-1]))
+            # Extraire les lignes d'employés
+            lignes = re.findall(r"<tr>\s*<td[^>]*class=['\"]name['\"][^>]*>(.*?)</td>(.*?)</tr>", content, re.DOTALL)
+            
+            if not lignes:
+                # Essayer format alternatif
+                lignes = re.findall(r"<tr><td class=['\"]name['\"]>(.*?)</td>(.*?)</tr>", content, re.DOTALL)
+            
+            if not lignes:
+                continue
+            
+            fichiers_traites += 1
+            entries = []
+            
+            for nom_html, contenu_ligne in lignes:
+                nom = re.sub(r'<[^>]+>', '', nom_html).strip()
+                if not nom or len(nom) < 2:
+                    continue
+                
+                # Extraire les blocs 15min
+                blocs = re.findall(r"<div[^>]*class=['\"][^'\"]*sub-block[^'\"]*['\"][^>]*>(.*?)</div>", contenu_ligne, re.DOTALL)
+                taches = [re.sub(r'<[^>]+>', '', b).strip() for b in blocs]
+                
+                # Trouver les plages de travail (blocs non-vides)
+                plage_active = []
+                plages = []
+                
+                for i, t in enumerate(taches[:len(slots_order)]):
+                    t_clean = t.upper().strip()
+                    if t_clean and t_clean not in ['', 'ABS']:
+                        plage_active.append(i)
+                    else:
+                        if len(plage_active) >= 2:
+                            plages.append((plage_active[0], plage_active[-1]))
                         plage_active = []
-            if plage_active:
-                plages.append((plage_active[0], plage_active[-1]))
+                
+                if len(plage_active) >= 2:
+                    plages.append((plage_active[0], plage_active[-1]))
+                
+                ms, me, aes, aee = '', '', '', ''
+                
+                if len(plages) >= 1:
+                    idx_start = plages[0][0]
+                    idx_end = min(plages[0][1] + 1, len(slots_order) - 1)
+                    h_s, m_s = slots_order[idx_start]
+                    h_e, m_e = slots_order[idx_end]
+                    ms = f"{h_s:02d}:{m_s:02d}"
+                    me = f"{h_e:02d}:{m_e:02d}"
+                
+                if len(plages) >= 2:
+                    idx_start = plages[1][0]
+                    idx_end = min(plages[1][1] + 1, len(slots_order) - 1)
+                    h_s, m_s = slots_order[idx_start]
+                    h_e, m_e = slots_order[idx_end]
+                    aes = f"{h_s:02d}:{m_s:02d}"
+                    aee = f"{h_e:02d}:{m_e:02d}"
+                
+                if ms or aes:
+                    entries.append({'nom': nom, 'ms': ms, 'me': me, 'aes': aes, 'aee': aee})
+                    total_entries += 1
             
-            ms, me, aes, aee = '', '', '', ''
-            
-            if len(plages) >= 1:
-                h_start, m_start = slots_order[plages[0][0]]
-                h_end, m_end = slots_order[min(plages[0][1] + 1, len(slots_order)-1)]
-                ms = f"{h_start:02d}:{m_start:02d}"
-                me = f"{h_end:02d}:{m_end:02d}"
-            
-            if len(plages) >= 2:
-                h_start, m_start = slots_order[plages[1][0]]
-                h_end, m_end = slots_order[min(plages[1][1] + 1, len(slots_order)-1)]
-                aes = f"{h_start:02d}:{m_start:02d}"
-                aee = f"{h_end:02d}:{m_end:02d}"
-            
-            if ms or aes:
-                entries.append({'nom': nom, 'ms': ms, 'me': me, 'aes': aes, 'aee': aee})
-                total_entries += 1
+            if entries:
+                db.save_planning(date_str, entries)
         
-        if entries:
-            db.save_planning(date_str, entries)
+        except Exception as e:
+            erreurs_fichiers.append(f"{fichier}: {str(e)}")
+            continue
     
-    return jsonify({
-        'success': True, 
-        'message': f'{fichiers_traites} fichier(s) analysé(s), {total_entries} entrée(s) reconstruite(s) dans la base de données.'
-    })
+    msg = f'{fichiers_traites} fichier(s) analysé(s), {total_entries} entrée(s) reconstruite(s).'
+    if erreurs_fichiers:
+        msg += f' Erreurs: {"; ".join(erreurs_fichiers[:3])}'
+    
+    return jsonify({'success': True, 'message': msg})
 
 # === INTERIM ===
 @app.route('/api/interim', methods=['GET'])
