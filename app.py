@@ -401,6 +401,9 @@ def rebuild_db():
     for h in range(9, 20):
         for m in [0, 15, 30, 45]:
             slots_order.append((h, m))
+    slots_order.append((20, 0))  # Sentinelle pour les fins à 20h
+    # Index 16 = 13:00 (seuil matin/après-midi)
+    IDX_MIDI = 16  # (13h - 9h) * 4 = 16
     
     for fichier in fichiers:
         try:
@@ -465,21 +468,27 @@ def rebuild_db():
                 
                 ms, me, aes, aee = '', '', '', ''
                 
-                if len(plages) >= 1:
-                    idx_start = plages[0][0]
-                    idx_end = min(plages[0][1] + 1, len(slots_order) - 1)
-                    h_s, m_s = slots_order[idx_start]
-                    h_e, m_e = slots_order[idx_end]
-                    ms = f"{h_s:02d}:{m_s:02d}"
-                    me = f"{h_e:02d}:{m_e:02d}"
+                def get_time(idx):
+                    i = min(idx, len(slots_order) - 1)
+                    h_v, m_v = slots_order[i]
+                    return f"{h_v:02d}:{m_v:02d}"
                 
-                if len(plages) >= 2:
-                    idx_start = plages[1][0]
-                    idx_end = min(plages[1][1] + 1, len(slots_order) - 1)
-                    h_s, m_s = slots_order[idx_start]
-                    h_e, m_e = slots_order[idx_end]
-                    aes = f"{h_s:02d}:{m_s:02d}"
-                    aee = f"{h_e:02d}:{m_e:02d}"
+                if len(plages) == 1:
+                    idx_start = plages[0][0]
+                    idx_end = plages[0][1] + 1
+                    # Si le bloc commence après 13h → c'est un shift après-midi/soir
+                    if idx_start >= IDX_MIDI:
+                        aes = get_time(idx_start)
+                        aee = get_time(idx_end)
+                    else:
+                        ms = get_time(idx_start)
+                        me = get_time(idx_end)
+                
+                elif len(plages) >= 2:
+                    ms = get_time(plages[0][0])
+                    me = get_time(plages[0][1] + 1)
+                    aes = get_time(plages[1][0])
+                    aee = get_time(plages[1][1] + 1)
                 
                 if ms or aes:
                     entries.append({'nom': nom, 'ms': ms, 'me': me, 'aes': aes, 'aee': aee})
