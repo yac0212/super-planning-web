@@ -476,6 +476,32 @@ document.addEventListener('DOMContentLoaded', () => {
         e.target.value = '';
     });
 
+    // === RECONSTRUIRE LA BDD ===
+    document.getElementById('btn-rebuild-db').addEventListener('click', async () => {
+        if (!confirm('Ceci va analyser tous vos plannings importés et reconstruire l\'historique des horaires dans la base de données.\n\nContinuer ?')) return;
+        
+        const statusDiv = document.getElementById('upload-status');
+        statusDiv.style.display = 'block';
+        statusDiv.innerHTML = `<div class="glass-card" style="padding:12px; color: var(--text-muted);">⏳ Analyse des fichiers en cours, cela peut prendre quelques secondes...</div>`;
+        
+        try {
+            const res = await fetch('/api/rebuild_db', { method: 'POST' });
+            const data = await res.json();
+            
+            if (data.success) {
+                statusDiv.innerHTML = `<div class="glass-card" style="padding:12px;">
+                    <p style="color:#16a34a; font-weight:600;">✅ Base de données reconstruite !</p>
+                    <p style="font-size:13px; color: var(--text-muted); margin-top:5px;">${data.message}</p>
+                    <p style="font-size:12px; color: var(--text-muted); margin-top:5px;">Vous pouvez maintenant utiliser "Charger" dans l'onglet Planification pour retrouver vos horaires.</p>
+                </div>`;
+            } else {
+                statusDiv.innerHTML = `<div class="glass-card" style="padding:12px; color:#dc2626;">❌ Erreur : ${data.message}</div>`;
+            }
+        } catch (err) {
+            statusDiv.innerHTML = `<div class="glass-card" style="padding:12px; color:#dc2626;">❌ Erreur de connexion.</div>`;
+        }
+    });
+
     // Init
     refreshPlanning();
 });
