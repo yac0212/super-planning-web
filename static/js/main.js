@@ -218,15 +218,53 @@ document.addEventListener('DOMContentLoaded', () => {
                 await refreshPlanning();
                 
                 const rows = document.querySelectorAll('.planning-row');
+                const nomsDejaRemplis = new Set();
+                
+                // Correspondance flexible : exacte d'abord, puis partielle
                 rows.forEach(row => {
-                    const nom = row.dataset.nom.toLowerCase();
-                    const saved = data.find(d => d.nom.toLowerCase() === nom);
+                    const nomRow = row.dataset.nom.toLowerCase().trim();
+                    
+                    // 1. Correspondance exacte
+                    let saved = data.find(d => d.nom.toLowerCase().trim() === nomRow);
+                    
+                    // 2. Correspondance partielle (l'un contient l'autre)
+                    if (!saved) {
+                        saved = data.find(d => {
+                            const nomSaved = d.nom.toLowerCase().trim();
+                            return nomRow.includes(nomSaved) || nomSaved.includes(nomRow);
+                        });
+                    }
+                    
                     if (saved) {
                         row.querySelector('.m1').value = saved.ms || '';
                         row.querySelector('.m2').value = saved.me || '';
                         row.querySelector('.a1').value = saved.aes || '';
                         row.querySelector('.a2').value = saved.aee || '';
+                        nomsDejaRemplis.add(saved.nom.toLowerCase().trim());
                     }
+                });
+                
+                // Ajouter les entrées sauvegardées sans correspondance dans l'équipe actuelle
+                const list = document.getElementById('planning-list');
+                data.forEach(saved => {
+                    if (nomsDejaRemplis.has(saved.nom.toLowerCase().trim())) return;
+                    if (!saved.ms && !saved.aes) return;
+                    
+                    const row = document.createElement('div');
+                    row.className = 'planning-row';
+                    row.dataset.nom = saved.nom;
+                    row.innerHTML = `
+                        <div class="name" style="color: var(--warning);">${saved.nom} <small>(non inscrit)</small></div>
+                        <div class="time-inputs matin">
+                            <input type="text" class="m1" placeholder="09:00" value="${saved.ms || ''}">
+                            <input type="text" class="m2" placeholder="13:00" value="${saved.me || ''}">
+                        </div>
+                        <div class="time-inputs aprem">
+                            <input type="text" class="a1" placeholder="14:00" value="${saved.aes || ''}">
+                            <input type="text" class="a2" placeholder="19:00" value="${saved.aee || ''}">
+                        </div>
+                    `;
+                    list.appendChild(row);
                 });
             }
         }
