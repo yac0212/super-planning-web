@@ -204,8 +204,7 @@ def generate_planning():
         th:last-child, td:last-child {{ border-right: none; }}
         tr:last-child td {{ border-bottom: none; }}
         
-        th {{ background: #71cf88 !important; color: white !important; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #4ade80 !important; padding: 8px 0; }}
-        .time-range {{ display: none; }}
+        th {{ background: #71cf88 !important; color: white !important; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #4ade80 !important; padding: 6px 0; }}
         
         .name {{ width: 140px; text-align: left; padding-left: 10px; background: #ffffff; font-weight: 600; color: #333; border-right: 1px solid #e0e0e0; font-size: 11px; }}
         tr:nth-child(even) td.name {{ background: #fafafa; }}
@@ -260,11 +259,8 @@ def generate_planning():
     
     for h in range(9, 20): 
         html += f"""
-            <th>
-                {h}H
-                <span class="time-range">{h}H - {h+1}H</span>
-            </th>
-        """
+            <th>{h}H-{h+1}H</th>
+"""
     html += "</tr></thead><tbody>"
     
     for nom in sorted(employes_presents):
