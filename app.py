@@ -244,7 +244,7 @@ def generate_planning():
         .btn-download {{ background: #3b82f6; color: white; padding: 12px 28px; text-decoration: none; border-radius: 30px; font-weight: 600; display: inline-block; cursor: pointer; border: none; font-size: 14px; transition: all 0.2s; box-shadow: 0 4px 10px rgba(59, 130, 246, 0.2); }}
         .btn-download:hover {{ background: #2563eb; transform: translateY(-1px); box-shadow: 0 6px 15px rgba(59, 130, 246, 0.3); }}
     </style>
-    </head><body onload='downloadHTML()'>
+    </head><body>
     
     <div class="main-container">
         <h1>PLANNING {date_saisie} (Veille: {closer_veille if closer_veille else 'Inconnu'})</h1>

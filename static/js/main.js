@@ -311,25 +311,62 @@ document.addEventListener('DOMContentLoaded', () => {
         loadInterimRequests();
     }
 
-    document.getElementById('btn-generate-interim-grid').addEventListener('click', () => {
-        // Simplification for the web demo: just generate the requested dates rows manually
+    document.getElementById('btn-generate-interim-grid').addEventListener('click', async () => {
         const start = document.getElementById('interim-start').value;
         const end = document.getElementById('interim-end').value;
+        const nomAbsent = document.getElementById('interim-absent').value;
         
         const grid = document.getElementById('interim-grid');
         grid.innerHTML = '';
         
-        // Let's just create 1 row for simplicity, or we can parse dates. 
-        // For MVP frontend, we do 1 row representing the period
-        grid.innerHTML = `
-            <div class="interim-grid-row" data-date="${start}">
-                <span>${start} :</span>
-                <input type="text" class="im1" placeholder="09:00">
-                <input type="text" class="im2" placeholder="13:00">
-                <input type="text" class="ia1" placeholder="14:00">
-                <input type="text" class="ia2" placeholder="19:00">
-            </div>
-        `;
+        // Convertir les dates JJ/MM/YYYY en objets Date
+        function parseDate(str) {
+            const [d, m, y] = str.split('/');
+            return new Date(`${y}-${m}-${d}`);
+        }
+        function formatDate(date) {
+            return `${String(date.getDate()).padStart(2,'0')}/${String(date.getMonth()+1).padStart(2,'0')}/${date.getFullYear()}`;
+        }
+        
+        const dateStart = parseDate(start);
+        const dateEnd = parseDate(end);
+        
+        if (isNaN(dateStart) || isNaN(dateEnd) || dateStart > dateEnd) {
+            grid.innerHTML = '<p style="color:red">Dates invalides.</p>';
+            return;
+        }
+        
+        // Essayer de charger les horaires de l'absent depuis la BDD pour chaque jour
+        let current = new Date(dateStart);
+        while (current <= dateEnd) {
+            const dateStr = formatDate(current);
+            
+            // Chercher les horaires sauvegardés pour cette date
+            let ms = '', me = '', aes = '', aee = '';
+            try {
+                const saved = await apiCall(`/api/planning/${dateStr.replace(/\//g, '-')}`);
+                if (saved && saved.length > 0) {
+                    const emp = saved.find(d => d.nom.toLowerCase().trim() === nomAbsent.toLowerCase().trim());
+                    if (emp) { ms = emp.ms || ''; me = emp.me || ''; aes = emp.aes || ''; aee = emp.aee || ''; }
+                }
+            } catch(e) {}
+            
+            const row = document.createElement('div');
+            row.className = 'interim-grid-row';
+            row.dataset.date = dateStr;
+            row.style.cssText = 'display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap;';
+            row.innerHTML = `
+                <span style="min-width:90px; font-weight:600;">${dateStr} :</span>
+                <input type="text" class="im1" placeholder="09:00" value="${ms}" style="width:70px;">
+                <input type="text" class="im2" placeholder="13:00" value="${me}" style="width:70px;">
+                <span style="color:var(--text-muted)">|</span>
+                <input type="text" class="ia1" placeholder="14:00" value="${aes}" style="width:70px;">
+                <input type="text" class="ia2" placeholder="19:00" value="${aee}" style="width:70px;">
+            `;
+            grid.appendChild(row);
+            
+            current.setDate(current.getDate() + 1);
+        }
     });
 
     document.getElementById('btn-write-email').addEventListener('click', () => {
@@ -342,15 +379,20 @@ document.addEventListener('DOMContentLoaded', () => {
         const start = document.getElementById('interim-start').value;
         const end = document.getElementById('interim-end').value;
         
-        const row = document.querySelector('.interim-grid-row');
-        if(!row) return alert("Veuillez générer la grille d'abord");
+        const rows = document.querySelectorAll('.interim-grid-row');
+        if(rows.length === 0) return alert("Veuillez générer la grille d'abord");
         
-        const m1 = row.querySelector('.im1').value;
-        const m2 = row.querySelector('.im2').value;
-        const a1 = row.querySelector('.ia1').value;
-        const a2 = row.querySelector('.ia2').value;
-        
-        const grille_data = `${start};${m1};${m2};${a1};${a2}`;
+        // Collecter toutes les lignes (un par jour)
+        const grille_parts = [];
+        rows.forEach(row => {
+            const date = row.dataset.date;
+            const m1 = row.querySelector('.im1').value;
+            const m2 = row.querySelector('.im2').value;
+            const a1 = row.querySelector('.ia1').value;
+            const a2 = row.querySelector('.ia2').value;
+            grille_parts.push(`${date};${m1};${m2};${a1};${a2}`);
+        });
+        const grille_data = grille_parts.join('|');
         
         const res = await apiCall('/api/interim', 'POST', {
             absent,
@@ -405,7 +447,19 @@ document.addEventListener('DOMContentLoaded', () => {
         if (res) {
             alert('Horaires transférés !');
             loadInterimRequests();
-            refreshPlanning();
+            
+            // Vider les horaires de l'absent dans la grille de planification
+            const rows = document.querySelectorAll('.planning-row');
+            rows.forEach(row => {
+                const nomRow = row.dataset.nom.toLowerCase().trim();
+                const nomAbs = nom_absent.toLowerCase().trim();
+                if (nomRow === nomAbs || nomRow.includes(nomAbs) || nomAbs.includes(nomRow)) {
+                    row.querySelector('.m1').value = '';
+                    row.querySelector('.m2').value = '';
+                    row.querySelector('.a1').value = '';
+                    row.querySelector('.a2').value = '';
+                }
+            });
         }
     };
 
