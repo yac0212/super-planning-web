@@ -139,7 +139,24 @@ def generate_pauses():
         html += f"<tr><td contenteditable='true'><b>{p['nom'].title()}</b></td><td contenteditable='true'>{p['duree']} min</td><td style='color:gray;' contenteditable='true'>Fin {p['fin'].strftime('%H:%M')}</td><td contenteditable='true'></td><td contenteditable='true'></td></tr>"
     html += "</table>"
     
-    html += "<br><div class='no-print' style='text-align:center'><button onclick='window.print()' style='padding:10px 20px; font-weight:bold; cursor:pointer;'>🖨️ IMPRIMER LA FEUILLE</button></div></body></html>"
+    html += "<br><div class='no-print' style='text-align:center; display:flex; justify-content:center; gap:15px;'>"
+    html += "<button onclick='window.print()' style='padding:10px 20px; font-weight:bold; cursor:pointer; background:#2CC985; color:white; border:none; border-radius:5px;'>🖨️ IMPRIMER</button>"
+    html += f"<button onclick='downloadHTML()' style='padding:10px 20px; font-weight:bold; cursor:pointer; background:#3b82f6; color:white; border:none; border-radius:5px;'>💾 SAUVEGARDER SUR MON PC</button>"
+    html += "</div>"
+    html += """<script>
+        function downloadHTML() {
+            const htmlContent = document.documentElement.outerHTML;
+            const blob = new Blob([htmlContent], {type: 'text/html'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = '""" + f"Feuille_Pauses_{date_saisie.replace('/','-')}.html" + """';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+    </script></body></html>"""
     
     nom_fichier = f"Feuille_Pauses_{date_saisie.replace('/','-')}.html"
     filepath = os.path.join(PAUSES_DIR, nom_fichier)
@@ -178,8 +195,8 @@ def generate_planning():
         @page {{ size: A4 landscape; margin: 8mm; }}
         body {{ font-family: 'Poppins', sans-serif; font-size: 11px; padding: 0; margin: 0; background: #fafafa; -webkit-print-color-adjust: exact; color: #333; }}
         
-        .main-container {{ background: white; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); padding: 20px; margin: 10px auto; width: 96%; box-sizing: border-box; }}
-        h1 {{ text-align: center; color: #1a1a1a; margin: 0 0 5px 0; font-size: 26px; font-weight: 700; }}
+        .main-container {{ background: white; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); padding: 10px; margin: 5px auto; width: 100%; max-width: 297mm; box-sizing: border-box; }}
+        h1 {{ text-align: center; color: #1a1a1a; margin: 0 0 5px 0; font-size: 20px; font-weight: 700; text-transform: uppercase; }}
         .sub-title-bar {{ display: flex; justify-content: space-between; align-items: center; background: #f0fdf4; border: 1px solid #dcfce7; padding: 10px 20px; border-radius: 8px; margin-bottom: 20px; color: #166534; font-size: 12px; font-weight: 600; }}
         
         table {{ border-collapse: separate; border-spacing: 0; width: 100%; table-layout: fixed; border-radius: 8px; overflow: hidden; border: 1px solid #e0e0e0; }}
@@ -187,11 +204,11 @@ def generate_planning():
         th:last-child, td:last-child {{ border-right: none; }}
         tr:last-child td {{ border-bottom: none; }}
         
-        th {{ background: #2CC985; color: white; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #24a871; padding: 8px 0; }}
-        .time-range {{ display: block; font-size: 9px; opacity: 0.8; font-weight: 400; margin-top: 1px; }}
+        th {{ background: #71cf88 !important; color: white !important; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #4ade80 !important; padding: 8px 0; }}
+        .time-range {{ display: none; }}
         
-        .name {{ width: 160px; text-align: left; padding-left: 15px; background: #f9fafb; font-weight: 600; color: #1a1a1a; border-right: 2px solid #e0e0e0; }}
-        tr:nth-child(even) td.name {{ background: #f3f4f6; }}
+        .name {{ width: 140px; text-align: left; padding-left: 10px; background: #ffffff; font-weight: 600; color: #333; border-right: 1px solid #e0e0e0; font-size: 11px; }}
+        tr:nth-child(even) td.name {{ background: #fafafa; }}
         
         .hour-cell {{ display: flex; width: 100%; height: 100%; position: relative; }}
         
@@ -203,34 +220,39 @@ def generate_planning():
         
         .sub-block:focus {{ background: #fff !important; color: #333 !important; border: 2px solid #3498db; z-index: 10; box-shadow: 0 0 10px rgba(52, 152, 219, 0.3); }}
         
-        .bg-CLS {{ background: #fef9c3 !important; color: #854d0e !important; border: 1px solid #fde047 !important; }}
-        .bg-C1, .bg-C2 {{ background: #fce7f3 !important; color: #9d174d !important; border: 1px solid #fbcfe8 !important; }}
-        .bg-C5, .bg-C6 {{ background: #ffedd5 !important; color: #9a3412 !important; border: 1px solid #fed7aa !important; }}
-        .bg-C13, .bg-C14 {{ background: #dcfce7 !important; color: #166534 !important; border: 1px solid #bbf7d0 !important; }}
-        .bg-PAUSE {{ background: #f3e8ff !important; color: #6b21a8 !important; border: 1px solid #e9d5ff !important; font-size: 9px; }}
+        .bg-CLS {{ background: #fde047 !important; color: #854d0e !important; border: 1px solid #facc15 !important; }}
+        .bg-C1, .bg-C2 {{ background: #be123c !important; color: white !important; border: 1px solid #9f1239 !important; }}
+        .bg-C5, .bg-C6 {{ background: #ea580c !important; color: white !important; border: 1px solid #c2410c !important; }}
+        .bg-C13, .bg-C14 {{ background: #16a34a !important; color: white !important; border: 1px solid #15803d !important; }}
+        .bg-PAUSE {{ background: #a855f7 !important; color: white !important; border: 1px solid #9333ea !important; font-size: 9px; letter-spacing: -0.5px; }}
         .bg-POLY {{ background: #f3f4f6 !important; color: #4b5563 !important; border: 1px solid #e5e7eb !important; font-style: italic; }}
         .bg-ABS {{ background: #ffffff !important; color: transparent !important; border: none !important; }}
         
-        [class^="bg-C"] {{ background: #e0f2fe; color: #075985; border: 1px solid #bae6fd; }}
+        .bg-C3, .bg-C4, .bg-C7, .bg-C8, .bg-C9 {{ background: #ffffff !important; color: #333 !important; border: 1px solid #ccc !important; }}
+        [class^="bg-C"]:not(.bg-C1):not(.bg-C2):not(.bg-C5):not(.bg-C6):not(.bg-C13):not(.bg-C14):not(.bg-C3):not(.bg-C4):not(.bg-C7):not(.bg-C8):not(.bg-C9) {{ 
+            background: #ffffff !important; color: #333 !important; border: 1px solid #ccc !important; 
+        }}
         
         @media print {{ 
             body {{ background: transparent; padding: 0; margin: 0; }}
             .main-container {{ box-shadow: none; border: none; width: 100%; padding: 0; margin: 0; }}
             table {{ border: 1px solid #ccc; }}
             .no-print {{ display: none; }}
-            .sub-block {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+            .sub-block {{ -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }}
+            th {{ -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }}
         }}
-        .btn-container {{ text-align: center; margin-top: 25px; }}
+        .btn-container {{ text-align: center; margin-top: 25px; display: flex; justify-content: center; gap: 15px; }}
         .btn-print {{ background: #2CC985; color: white; padding: 12px 28px; text-decoration: none; border-radius: 30px; font-weight: 600; display: inline-block; cursor: pointer; border: none; font-size: 14px; transition: all 0.2s; box-shadow: 0 4px 10px rgba(44, 201, 133, 0.2); }}
         .btn-print:hover {{ background: #24a871; transform: translateY(-1px); box-shadow: 0 6px 15px rgba(44, 201, 133, 0.3); }}
+        .btn-download {{ background: #3b82f6; color: white; padding: 12px 28px; text-decoration: none; border-radius: 30px; font-weight: 600; display: inline-block; cursor: pointer; border: none; font-size: 14px; transition: all 0.2s; box-shadow: 0 4px 10px rgba(59, 130, 246, 0.2); }}
+        .btn-download:hover {{ background: #2563eb; transform: translateY(-1px); box-shadow: 0 6px 15px rgba(59, 130, 246, 0.3); }}
     </style>
-    </head><body>
+    </head><body onload='downloadHTML()'>
     
     <div class="main-container">
-        <h1>Planning {date_saisie}</h1>
-        <div class="sub-title-bar">
-            <div>Veille: {closer_veille if closer_veille else 'Inconnu'}</div>
-            <div>{infos_pauses}</div>
+        <h1>PLANNING {date_saisie} (Veille: {closer_veille if closer_veille else 'Inconnu'})</h1>
+        <div class="sub-title-bar" style="justify-content: center; background: none; border: none; padding: 0; margin-bottom: 10px;">
+            <div style="font-size: 14px; color: #555;">{infos_pauses}</div>
         </div>
         
         <table>
@@ -289,10 +311,24 @@ def generate_planning():
     </div>
     
     <div class='no-print btn-container'>
-        <button class='btn-print' onclick='window.print()'>🖨️ IMPRIMER LE PLANNING PRO</button>
+        <button class='btn-print' onclick='window.print()'>🖨️ IMPRIMER LE PLANNING (A4)</button>
+        <button class='btn-download' onclick='downloadHTML()'>💾 SAUVEGARDER SUR MON PC</button>
     </div>
     
     <script>
+        function downloadHTML() {
+            const htmlContent = document.documentElement.outerHTML;
+            const blob = new Blob([htmlContent], {type: 'text/html'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'Planning_A4_{date_saisie.replace("/","-")}.html';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
         document.querySelectorAll('.sub-block').forEach(b => {
             b.addEventListener('input', function() {
                 let t = this.innerText.trim().toUpperCase();
@@ -304,9 +340,16 @@ def generate_planning():
                 else if (t === 'PAUSE' || t === 'MISSION PAUSE') this.classList.add('bg-PAUSE');
                 else if (t === 'POLY') this.classList.add('bg-POLY');
                 else if (t === 'ABS' || t === '') this.classList.add('bg-ABS');
+                else if (['C3','C4','C7','C8','C9'].includes(t)) this.classList.add('bg-C3');
                 else if (t.startsWith('C') && t.length > 1) this.classList.add('bg-C_OTHER');
             });
         });
+        
+        // Auto-download on generation
+        window.onload = function() {
+            // Uncomment the line below to force download automatically when opened
+            // downloadHTML();
+        };
     </script>
     </body></html>
     """
@@ -356,10 +399,17 @@ def assign_interim():
 @app.route('/api/archives', methods=['GET'])
 def get_archives():
     try:
-        fichiers = sorted([f for f in os.listdir(PLANNINGS_DIR) if f.startswith("Planning_A4_") and f.endswith(".html")], reverse=True)
-        return jsonify([{'filename': f, 'name': f.replace("Planning_A4_", "").replace(".html", "").replace("-", "/")} for f in fichiers])
+        fichiers_plannings = [{'filename': f, 'type': 'plannings', 'name': f.replace(".html", "").replace("-", "/")} for f in os.listdir(PLANNINGS_DIR) if f.endswith(".html")]
     except FileNotFoundError:
-        return jsonify([])
+        fichiers_plannings = []
+        
+    try:
+        fichiers_pauses = [{'filename': f, 'type': 'pauses', 'name': f.replace(".html", "").replace("-", "/")} for f in os.listdir(PAUSES_DIR) if f.endswith(".html")]
+    except FileNotFoundError:
+        fichiers_pauses = []
+        
+    tous = sorted(fichiers_plannings + fichiers_pauses, key=lambda x: x['name'], reverse=True)
+    return jsonify(tous)
 
 # === STATS ===
 @app.route('/api/stats/<date_str>', methods=['GET'])

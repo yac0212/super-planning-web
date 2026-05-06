@@ -416,12 +416,15 @@ document.addEventListener('DOMContentLoaded', () => {
         res.forEach(f => {
             const card = document.createElement('div');
             card.className = 'archive-card';
+            let icon = f.type === 'pauses' ? 'coffee' : 'calendar';
+            let displayName = f.name.replace('Planning_A4_', 'Planning ').replace('Feuille_Pauses_', 'Pauses ');
+            
             card.innerHTML = `
-                <div class="archive-icon"><i data-lucide="calendar"></i></div>
-                <div style="font-weight: 600">${f.name}</div>
+                <div class="archive-icon"><i data-lucide="${icon}"></i></div>
+                <div style="font-weight: 600">${displayName}</div>
             `;
             card.addEventListener('click', () => {
-                window.open(`/files/plannings/${f.filename}`, '_blank');
+                window.open(`/files/${f.type}/${f.filename}`, '_blank');
             });
             grid.appendChild(card);
         });
