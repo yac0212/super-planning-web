@@ -199,15 +199,15 @@ def generate_planning():
         h1 {{ text-align: center; color: #1a1a1a; margin: 0 0 5px 0; font-size: 26px; font-weight: 700; }}
         .sub-title-bar {{ display: flex; justify-content: space-between; align-items: center; background: #f0fdf4; border: 1px solid #dcfce7; padding: 10px 20px; border-radius: 8px; margin-bottom: 20px; color: #166534; font-size: 12px; font-weight: 600; }}
         
-        table {{ border-collapse: separate; border-spacing: 0; width: 100%; table-layout: fixed; border-radius: 8px; overflow: hidden; border: 2px solid #333; }}
-        th, td {{ border-right: 2px solid #333; border-bottom: 1px solid #999; text-align: center; height: 36px; padding: 0; position: relative; }}
+        table {{ border-collapse: separate; border-spacing: 0; width: 100%; table-layout: fixed; border-radius: 8px; overflow: hidden; border: 1px solid #555; }}
+        th, td {{ border-right: 1px solid #555; border-bottom: 1px solid #999; text-align: center; height: 36px; padding: 0; position: relative; }}
         th:last-child, td:last-child {{ border-right: none; }}
         tr:last-child td {{ border-bottom: none; }}
         
         th {{ background: #2CC985; color: white; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #24a871; padding: 8px 0; }}
         .time-range {{ display: block; font-size: 9px; opacity: 0.8; font-weight: 400; margin-top: 1px; }}
         
-        .name {{ width: 160px; text-align: left; padding-left: 15px; background: #f9fafb; font-weight: 600; color: #1a1a1a; border-right: 2px solid #333; }}
+        .name {{ width: 160px; text-align: left; padding-left: 15px; background: #f9fafb; font-weight: 600; color: #1a1a1a; border-right: 1px solid #555; }}
         tr:nth-child(even) td.name {{ background: #f3f4f6; }}
         
         .hour-cell {{ display: flex; width: 100%; height: 100%; position: relative; }}
@@ -235,7 +235,7 @@ def generate_planning():
         @media print {{ 
             body {{ background: transparent; padding: 0; margin: 0; }}
             .main-container {{ box-shadow: none; border: none; width: 100%; padding: 0; margin: 0; }}
-            table {{ border: 2px solid #333; }}
+            table {{ border: 1px solid #555; }}
             .no-print {{ display: none !important; }}
             .sub-block {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
         }}

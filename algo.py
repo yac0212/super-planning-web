@@ -235,20 +235,26 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
 
     # --- ETAPE 2 : CLS JOURNÉE ---
     if est_dimanche:
-        for start_s, length_s in [(2, 8), (10, 7)]:
+        # Tranches de 2 heures pour couvrir 09h00 -> 11h00 et 11h00 -> 13h00
+        for start_s, length_s in [(0, 8), (8, 8)]:
             candidats_disponibles = []
             for nom in employes_presents:
-                if cache_emp[nom]['restriction_cls'] or is_blacklisted(nom) or compteur_cls[nom] >= 1: 
+                # On vérifie si l'employé est autorisé et n'a pas déjà fait un shift CLS aujourd'hui
+                if cache_emp.get(nom, {}).get('restriction_cls') or is_blacklisted(nom) or compteur_cls[nom] >= 1: 
                     continue
+                
                 indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
                 l = get_continuous_block(indices_libres, start_s)
                 if l > 0: 
                     candidats_disponibles.append((nom, l))
                     
+            # Priorité : On évite Yacine en premier, puis on cherche celui qui a la durée la plus proche de la tranche
             candidats_disponibles.sort(key=lambda x: (1 if "yacine" in x[0].lower() else 0, abs(x[1] - length_s)))
+            
             if candidats_disponibles: 
-                assigner_tache(candidats_disponibles[0][0], "CLS", start_s, min(candidats_disponibles[0][1], length_s))
-                compteur_cls[candidats_disponibles[0][0]] += 1
+                gagnant = candidats_disponibles[0][0]
+                assigner_tache(gagnant, "CLS", start_s, min(candidats_disponibles[0][1], length_s))
+                compteur_cls[gagnant] += 1
     else:
         for i, ts in enumerate(slots):
             if int(ts.split(':')[0]) >= 17: break
