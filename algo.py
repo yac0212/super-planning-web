@@ -270,12 +270,8 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
     # --- ETAPE 3 : CAISSES 1, 2, 13, 14 (PRIORITÉ INTÉRIM ABSOLUE) ---
     for num_caisse in [1, 2, 13, 14]:
         nom_caisse = f"C{num_caisse}"
+        dict_penalite = HIERARCHIE_PENALITE_C1_C2 if num_caisse in [1, 2] else HIERARCHIE_PENALITE_C13_C14
         
-        if num_caisse in [1, 2]:
-            dict_penalite = HIERARCHIE_PENALITE_C1_C2
-        else:
-            dict_penalite = HIERARCHIE_PENALITE_C13_C14
-            
         for i, ts in enumerate(slots):
             if any(matrice_planning[i][x] == nom_caisse for x in range(len(employes_presents))): 
                 continue
@@ -289,17 +285,16 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
             def score_priorite_caisse(c):
                 nom_c = c[0]
                 longueur_c = c[1]
-                infos = cache_emp[nom_c]
-                
+                infos = cache_emp.get(nom_c, {'statut': 'CDI', 'restriction_handicap': 'Aucun'})
                 penalite = get_penalite(nom_c, dict_penalite)
                 
-                # Bonus absolu (-100000) pour que les intérims prennent ces caisses en priorité
-                if infos['statut'] == "Interimaire": 
+                # Bonus absolu (-100000) pour imposer l'intérim
+                if infos.get('statut') == "Interimaire": 
                     penalite -= 100000 
                     
-                # Règles de handicap (Pair / Impair)
                 est_pair = (num_caisse % 2 == 0)
-                if (infos['restriction_handicap'] == "Caisse Impaire Uniq." and est_pair) or (infos['restriction_handicap'] == "Caisse Paire Uniq." and not est_pair): 
+                if (infos.get('restriction_handicap') == "Caisse Impaire Uniq." and est_pair) or \
+                   (infos.get('restriction_handicap') == "Caisse Paire Uniq." and not est_pair): 
                     penalite += 999999
                     
                 return (penalite, -longueur_c)
@@ -308,8 +303,37 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
             if candidats_disponibles and score_priorite_caisse(candidats_disponibles[0])[0] < 900000: 
                 assigner_tache(candidats_disponibles[0][0], nom_caisse, i, candidats_disponibles[0][1])
 
-    # --- ETAPE 4 : LE RESTE DES CAISSES ---
-    for num_caisse in [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]:
+    # --- ETAPE 4 : CAISSES 5 ET 6 (PRIORITÉ SECONDAIRE) ---
+    for num_caisse in [5, 6]:
+        nom_caisse = f"C{num_caisse}"
+        for i, ts in enumerate(slots):
+            if any(matrice_planning[i][x] == nom_caisse for x in range(len(employes_presents))): 
+                continue
+                
+            candidats_disponibles = []
+            for nom in employes_presents:
+                indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
+                if i in indices_libres: 
+                    candidats_disponibles.append((nom, get_continuous_block(indices_libres, i)))
+                    
+            def score_caisse_5_6(c):
+                nom_c = c[0]
+                longueur_c = c[1]
+                infos = cache_emp.get(nom_c, {'statut': 'CDI', 'restriction_handicap': 'Aucun'})
+                penalite = 0
+                
+                est_pair = (num_caisse % 2 == 0)
+                if (infos.get('restriction_handicap') == "Caisse Impaire Uniq." and est_pair) or \
+                   (infos.get('restriction_handicap') == "Caisse Paire Uniq." and not est_pair): 
+                    penalite += 999999
+                return (penalite, -longueur_c)
+                
+            candidats_disponibles.sort(key=score_caisse_5_6)
+            if candidats_disponibles and score_caisse_5_6(candidats_disponibles[0])[0] < 900000: 
+                assigner_tache(candidats_disponibles[0][0], nom_caisse, i, candidats_disponibles[0][1])
+
+    # --- ETAPE 5 : LE RESTE DES CAISSES ---
+    for num_caisse in [3, 4, 7, 8, 9, 10, 11, 12]:
         nom_caisse = f"C{num_caisse}"
         for i, ts in enumerate(slots):
             if any(matrice_planning[i][x] == nom_caisse for x in range(len(employes_presents))): 
@@ -322,18 +346,19 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
                     candidats_disponibles.append((nom, get_continuous_block(indices_libres, i)))
                     
             def score_reste(c):
-                infos = cache_emp[c[0]]
+                infos = cache_emp.get(c[0], {'statut': 'CDI', 'restriction_handicap': 'Aucun'})
                 penalite = 0
                 est_pair = (num_caisse % 2 == 0)
-                if (infos['restriction_handicap'] == "Caisse Impaire Uniq." and est_pair) or (infos['restriction_handicap'] == "Caisse Paire Uniq." and not est_pair): 
-                    penalite += 99999
+                if (infos.get('restriction_handicap') == "Caisse Impaire Uniq." and est_pair) or \
+                   (infos.get('restriction_handicap') == "Caisse Paire Uniq." and not est_pair): 
+                    penalite += 999999
                 return (penalite, -c[1])
                 
             candidats_disponibles.sort(key=score_reste)
-            if candidats_disponibles and score_reste(candidats_disponibles[0])[0] < 90000: 
+            if candidats_disponibles and score_reste(candidats_disponibles[0])[0] < 900000: 
                 assigner_tache(candidats_disponibles[0][0], nom_caisse, i, candidats_disponibles[0][1])
     
-    # --- ETAPE 5 : Comblement final par "Polyvalent" ---
+    # --- ETAPE 6 : POLYVALENT ---
     for nom in employes_presents:
         indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
         if indices_libres:
