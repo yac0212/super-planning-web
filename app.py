@@ -199,15 +199,15 @@ def generate_planning():
         h1 {{ text-align: center; color: #1a1a1a; margin: 0 0 5px 0; font-size: 26px; font-weight: 700; }}
         .sub-title-bar {{ display: flex; justify-content: space-between; align-items: center; background: #f0fdf4; border: 1px solid #dcfce7; padding: 10px 20px; border-radius: 8px; margin-bottom: 20px; color: #166534; font-size: 12px; font-weight: 600; }}
         
-        table {{ border-collapse: separate; border-spacing: 0; width: 100%; table-layout: fixed; border-radius: 8px; overflow: hidden; border: 1px solid #e0e0e0; }}
-        th, td {{ border-right: 1px solid #e0e0e0; border-bottom: 1px solid #e0e0e0; text-align: center; height: 26px; padding: 0; position: relative; }}
+        table {{ border-collapse: separate; border-spacing: 0; width: 100%; table-layout: fixed; border-radius: 8px; overflow: hidden; border: 2px solid #333; }}
+        th, td {{ border-right: 2px solid #333; border-bottom: 1px solid #999; text-align: center; height: 26px; padding: 0; position: relative; }}
         th:last-child, td:last-child {{ border-right: none; }}
         tr:last-child td {{ border-bottom: none; }}
         
         th {{ background: #2CC985; color: white; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #24a871; padding: 8px 0; }}
         .time-range {{ display: block; font-size: 9px; opacity: 0.8; font-weight: 400; margin-top: 1px; }}
         
-        .name {{ width: 160px; text-align: left; padding-left: 15px; background: #f9fafb; font-weight: 600; color: #1a1a1a; border-right: 2px solid #e0e0e0; }}
+        .name {{ width: 160px; text-align: left; padding-left: 15px; background: #f9fafb; font-weight: 600; color: #1a1a1a; border-right: 2px solid #333; }}
         tr:nth-child(even) td.name {{ background: #f3f4f6; }}
         
         .hour-cell {{ display: flex; width: 100%; height: 100%; position: relative; }}
@@ -216,7 +216,7 @@ def generate_planning():
         .sub-block:not(.bg-ABS):not(:empty) {{ box-shadow: 0 1px 2px rgba(0,0,0,0.05); }}
         
         /* Séparateur 15 min discret */
-        .sub-block {{ border-right: 1px dashed rgba(0,0,0,0.08); margin: 2px 1px; }}
+        .sub-block {{ border-right: 1px dashed rgba(0,0,0,0.3); margin: 2px 1px; }}
         .sub-block:last-child {{ border-right: none; }}
         
         .sub-block:focus {{ background: #fff !important; color: #333 !important; border: 2px solid #3498db; z-index: 10; box-shadow: 0 0 10px rgba(52, 152, 219, 0.3); }}
