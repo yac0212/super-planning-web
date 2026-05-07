@@ -160,6 +160,43 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
                 closer_assigne = gagnant
                 db.save_historique_fermeture(date_saisie, gagnant)
 
+    # --- ETAPE : CLS JOURNÉE (PRIORITÉ ABSOLUE LE DIMANCHE) ---
+    if est_dimanche:
+        # On remplit d'abord le 9h-11h (index 0 à 8) puis le 11h-13h (index 8 à 16)
+        for start_s, length_s in [(0, 8), (8, 8)]:
+            candidats_disponibles = []
+            for nom in employes_presents:
+                if cache_emp.get(nom, {}).get('restriction_cls') or is_blacklisted(nom) or compteur_cls[nom] >= 1: 
+                    continue
+                
+                indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
+                l = get_continuous_block(indices_libres, start_s)
+                if l > 0: 
+                    candidats_disponibles.append((nom, l))
+                    
+            candidats_disponibles.sort(key=lambda x: (1 if "yacine" in x[0].lower() else 0, abs(x[1] - length_s)))
+            if candidats_disponibles: 
+                gagnant = candidats_disponibles[0][0]
+                assigner_tache(gagnant, "CLS", start_s, min(candidats_disponibles[0][1], length_s))
+                compteur_cls[gagnant] += 1
+    else:
+        for i, ts in enumerate(slots):
+            if int(ts.split(':')[0]) >= 17: break
+            
+            if not any(matrice_planning[i][x] == "CLS" for x in range(len(employes_presents))):
+                candidats_disponibles = []
+                for nom in employes_presents:
+                    if nom == closer_assigne or cache_emp[nom]['restriction_cls'] or is_blacklisted(nom) or compteur_cls[nom] >= 1: 
+                        continue
+                    indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
+                    if i in indices_libres: 
+                        candidats_disponibles.append((nom, get_continuous_block(indices_libres, i)))
+                        
+                candidats_disponibles.sort(key=lambda x: (1 if x[1] < 8 else 0, 5000 if "yacine" in x[0].lower() else 0))
+                if candidats_disponibles: 
+                    assigner_tache(candidats_disponibles[0][0], "CLS", i, min(candidats_disponibles[0][1], 8))
+                    compteur_cls[candidats_disponibles[0][0]] += 1
+
     # --- ETAPE 1 : LES PAUSES ---
     slots_pause_matin = math.ceil((minutes_matin + MARGE_MISSION_PAUSE_MIN) / 15)
     if slots_pause_matin > 0:
@@ -233,45 +270,7 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
             cur_idx += longueur_assignee
             restant -= longueur_assignee
 
-    # --- ETAPE 2 : CLS JOURNÉE ---
-    if est_dimanche:
-        # Tranches de 2 heures pour couvrir 09h00 -> 11h00 et 11h00 -> 13h00
-        for start_s, length_s in [(0, 8), (8, 8)]:
-            candidats_disponibles = []
-            for nom in employes_presents:
-                # On vérifie si l'employé est autorisé et n'a pas déjà fait un shift CLS aujourd'hui
-                if cache_emp.get(nom, {}).get('restriction_cls') or is_blacklisted(nom) or compteur_cls[nom] >= 1: 
-                    continue
-                
-                indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
-                l = get_continuous_block(indices_libres, start_s)
-                if l > 0: 
-                    candidats_disponibles.append((nom, l))
-                    
-            # Priorité : On évite Yacine en premier, puis on cherche celui qui a la durée la plus proche de la tranche
-            candidats_disponibles.sort(key=lambda x: (1 if "yacine" in x[0].lower() else 0, abs(x[1] - length_s)))
-            
-            if candidats_disponibles: 
-                gagnant = candidats_disponibles[0][0]
-                assigner_tache(gagnant, "CLS", start_s, min(candidats_disponibles[0][1], length_s))
-                compteur_cls[gagnant] += 1
-    else:
-        for i, ts in enumerate(slots):
-            if int(ts.split(':')[0]) >= 17: break
-            
-            if not any(matrice_planning[i][x] == "CLS" for x in range(len(employes_presents))):
-                candidats_disponibles = []
-                for nom in employes_presents:
-                    if nom == closer_assigne or cache_emp[nom]['restriction_cls'] or is_blacklisted(nom) or compteur_cls[nom] >= 1: 
-                        continue
-                    indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
-                    if i in indices_libres: 
-                        candidats_disponibles.append((nom, get_continuous_block(indices_libres, i)))
-                        
-                candidats_disponibles.sort(key=lambda x: (1 if x[1] < 8 else 0, 5000 if "yacine" in x[0].lower() else 0))
-                if candidats_disponibles: 
-                    assigner_tache(candidats_disponibles[0][0], "CLS", i, min(candidats_disponibles[0][1], 8))
-                    compteur_cls[candidats_disponibles[0][0]] += 1
+
 
     # --- ETAPE 3 : CAISSES 1, 2, 13, 14 (PRIORITÉ INTÉRIM ABSOLUE) ---
     for num_caisse in [1, 2, 13, 14]:

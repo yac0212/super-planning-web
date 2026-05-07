@@ -467,6 +467,23 @@ document.addEventListener('DOMContentLoaded', () => {
             alert(`Horaires de "${nom_absent}" transférés à "${nom_remplacant}" !`);
             loadInterimRequests();
             
+            // Générer et afficher automatiquement le planning pour la première date impactée
+            const firstDateStr = grille_data.split('|')[0].split(';')[0];
+            if (firstDateStr) {
+                const dataToGen = await apiCall(`/api/planning/${firstDateStr.replace(/\//g, '-')}`);
+                if (dataToGen && dataToGen.length > 0) {
+                    const inputsList = {};
+                    dataToGen.forEach(d => {
+                        inputsList[d.nom] = { ms: d.ms||'', me: d.me||'', aes: d.aes||'', aee: d.aee||'' };
+                    });
+                    const genRes = await apiCall('/api/generate_planning', 'POST', {
+                        date: firstDateStr,
+                        inputs: inputsList
+                    });
+                    if (genRes && genRes.url) window.open(genRes.url, '_blank');
+                }
+            }
+            
             // Recharger le planning depuis la BDD pour effacer l'absent et mettre à jour l'intérimaire
             const currentDateStr = document.getElementById('planning-date').value;
             await refreshPlanning();
