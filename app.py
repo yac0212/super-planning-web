@@ -192,7 +192,7 @@ def generate_planning():
     html = f"""<!DOCTYPE html><html><head><meta charset='utf-8'>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap');
-        @page {{ size: A4 landscape; margin: 8mm; }}
+        @page {{ size: A4 landscape; margin: 5mm; }}
         body {{ font-family: 'Poppins', sans-serif; font-size: 11px; padding: 0; margin: 0; background: #fafafa; -webkit-print-color-adjust: exact; color: #333; }}
         
         .main-container {{ background: white; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); padding: 20px; margin: 10px auto; width: 96%; }}
@@ -200,7 +200,7 @@ def generate_planning():
         .sub-title-bar {{ display: flex; justify-content: space-between; align-items: center; background: #f0fdf4; border: 1px solid #dcfce7; padding: 10px 20px; border-radius: 8px; margin-bottom: 20px; color: #166534; font-size: 12px; font-weight: 600; }}
         
         table {{ border-collapse: separate; border-spacing: 0; width: 100%; table-layout: fixed; border-radius: 8px; overflow: hidden; border: 1px solid #e0e0e0; }}
-        th, td {{ border-right: 1px solid #e0e0e0; border-bottom: 1px solid #e0e0e0; text-align: center; height: 36px; padding: 0; position: relative; }}
+        th, td {{ border-right: 1px solid #e0e0e0; border-bottom: 1px solid #e0e0e0; text-align: center; height: 26px; padding: 0; position: relative; }}
         th:last-child, td:last-child {{ border-right: none; }}
         tr:last-child td {{ border-bottom: none; }}
         
@@ -221,16 +221,16 @@ def generate_planning():
         
         .sub-block:focus {{ background: #fff !important; color: #333 !important; border: 2px solid #3498db; z-index: 10; box-shadow: 0 0 10px rgba(52, 152, 219, 0.3); }}
         
-        /* Couleurs */
-        .bg-CLS {{ background: #fef9c3 !important; color: #854d0e !important; border: 1px solid #fde047 !important; }}
-        .bg-C1, .bg-C2 {{ background: #fce7f3 !important; color: #9d174d !important; border: 1px solid #fbcfe8 !important; }}
-        .bg-C5, .bg-C6 {{ background: #ffedd5 !important; color: #9a3412 !important; border: 1px solid #fed7aa !important; }}
-        .bg-C13, .bg-C14 {{ background: #dcfce7 !important; color: #166534 !important; border: 1px solid #bbf7d0 !important; }}
-        .bg-PAUSE {{ background: #f3e8ff !important; color: #6b21a8 !important; border: 1px solid #e9d5ff !important; font-size: 9px; }}
-        .bg-POLY {{ background: #f3f4f6 !important; color: #4b5563 !important; border: 1px solid #e5e7eb !important; font-style: italic; }}
+        /* Couleurs Foncées et Voyantes */
+        .bg-CLS {{ background: #FACC15 !important; color: #000000 !important; border: 1px solid #CA8A04 !important; }}
+        .bg-C1, .bg-C2 {{ background: #EF4444 !important; color: white !important; border: 1px solid #B91C1C !important; }}
+        .bg-C5, .bg-C6 {{ background: #F97316 !important; color: white !important; border: 1px solid #C2410C !important; }}
+        .bg-C13, .bg-C14 {{ background: #22C55E !important; color: white !important; border: 1px solid #15803D !important; }}
+        .bg-P {{ background: #8B5CF6 !important; color: white !important; border: 1px solid #6D28D9 !important; font-size: 11px; }}
+        .bg-POLY {{ background: #475569 !important; color: white !important; border: 1px solid #334155 !important; font-style: normal; }}
         .bg-ABS {{ background: #ffffff !important; color: transparent !important; }}
         
-        [class^="bg-C"] {{ background: #e0f2fe; color: #075985; border: 1px solid #bae6fd; }}
+        [class^="bg-C"] {{ background: #0EA5E9 !important; color: white !important; border: 1px solid #0369A1 !important; }}
         
         @media print {{ 
             body {{ background: transparent; padding: 0; margin: 0; }}
@@ -294,7 +294,8 @@ def generate_planning():
                         if present: label = ""
                         
                 label = label.replace("Caisse ", "C")
-                style_css = f"bg-{label}" if label in ["CLS", "C1", "C2", "C5", "C6", "C13", "C14", "PAUSE", "ABS", "POLY"] else ""
+                if label == "PAUSE": label = "P"
+                style_css = f"bg-{label}" if label in ["CLS", "C1", "C2", "C5", "C6", "C13", "C14", "P", "ABS", "POLY"] else ""
                 if label != "ABS" and style_css == "" and label.startswith("C"):
                     style_css = "bg-C_OTHER"
 
@@ -335,7 +336,7 @@ def generate_planning():
                 else if (t === 'C5' || t === 'C6') this.classList.add('bg-C5');
                 else if (t === 'C13' || t === 'C14') this.classList.add('bg-C13');
                 else if (t === 'CLS') this.classList.add('bg-CLS');
-                else if (t === 'PAUSE' || t === 'MISSION PAUSE') this.classList.add('bg-PAUSE');
+                else if (t === 'PAUSE' || t === 'MISSION PAUSE' || t === 'P') this.classList.add('bg-P');
                 else if (t === 'POLY') this.classList.add('bg-POLY');
                 else if (t === 'ABS' || t === '') this.classList.add('bg-ABS');
                 else if (t.startsWith('C') && t.length > 1) this.classList.add('bg-C_OTHER');
