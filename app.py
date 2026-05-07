@@ -200,7 +200,7 @@ def generate_planning():
         .sub-title-bar {{ display: flex; justify-content: space-between; align-items: center; background: #f0fdf4; border: 1px solid #dcfce7; padding: 10px 20px; border-radius: 8px; margin-bottom: 20px; color: #166534; font-size: 12px; font-weight: 600; }}
         
         table {{ border-collapse: separate; border-spacing: 0; width: 100%; table-layout: fixed; border-radius: 8px; overflow: hidden; border: 2px solid #333; }}
-        th, td {{ border-right: 2px solid #333; border-bottom: 1px solid #999; text-align: center; height: 26px; padding: 0; position: relative; }}
+        th, td {{ border-right: 2px solid #333; border-bottom: 1px solid #999; text-align: center; height: 36px; padding: 0; position: relative; }}
         th:last-child, td:last-child {{ border-right: none; }}
         tr:last-child td {{ border-bottom: none; }}
         
@@ -212,11 +212,11 @@ def generate_planning():
         
         .hour-cell {{ display: flex; width: 100%; height: 100%; position: relative; }}
         
-        .sub-block {{ flex: 1; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 10px; cursor: text; outline: none; transition: background 0.2s; position: relative; margin: 2px; border-radius: 4px; border: 1px solid transparent; }}
+        .sub-block {{ flex: 1; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 9px; letter-spacing: -0.5px; overflow: hidden; white-space: nowrap; cursor: text; outline: none; transition: background 0.2s; position: relative; margin: 1px 0; border-radius: 2px; border: 1px solid transparent; }}
         .sub-block:not(.bg-ABS):not(:empty) {{ box-shadow: 0 1px 2px rgba(0,0,0,0.05); }}
         
         /* Séparateur 15 min discret */
-        .sub-block {{ border-right: 1px dashed rgba(0,0,0,0.3); margin: 2px 1px; }}
+        .sub-block {{ border-right: 1px dashed rgba(0,0,0,0.3); }}
         .sub-block:last-child {{ border-right: none; }}
         
         .sub-block:focus {{ background: #fff !important; color: #333 !important; border: 2px solid #3498db; z-index: 10; box-shadow: 0 0 10px rgba(52, 152, 219, 0.3); }}
@@ -235,8 +235,8 @@ def generate_planning():
         @media print {{ 
             body {{ background: transparent; padding: 0; margin: 0; }}
             .main-container {{ box-shadow: none; border: none; width: 100%; padding: 0; margin: 0; }}
-            table {{ border: 1px solid #ccc; }}
-            .no-print {{ display: none; }}
+            table {{ border: 2px solid #333; }}
+            .no-print {{ display: none !important; }}
             .sub-block {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
         }}
         .btn-container {{ text-align: center; margin-top: 25px; display: flex; justify-content: center; gap: 15px; }}
