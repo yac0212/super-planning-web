@@ -129,8 +129,11 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
 
     # --- ÉTAPE : PRIORITÉ ABSOLUE CLS LE DIMANCHE ---
     if est_dimanche:
-        # Bloc 1 (9h-11h) index 0 à 8 | Bloc 2 (11h-13h) index 8 à 16
-        for index_depart, nb_creneaux in [(0, 8), (8, 8)]:
+        # Le dimanche, on commence à 09h30 (index 2) jusqu'à 13h00 (index 16).
+        # On divise en deux shifts égaux de 1h45 (7 créneaux de 15min chacun).
+        # Shift 1 : 09h30 -> 11h30 (Index 2, longueur 7)
+        # Shift 2 : 11h30 -> 13h15 (Index 9, longueur 7)
+        for index_depart, nb_creneaux in [(2, 8), (9, 8)]:
             candidats_cls = []
             for nom in employes_presents:
                 # Vérifier si l'employé est autorisé et disponible
@@ -142,13 +145,13 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
                     longueur_dispo = get_continuous_block(indices_libres, index_depart)
                     candidats_cls.append((nom, longueur_dispo))
                     
-            # On évite Yacine si possible, sinon on prend celui qui peut faire le plus long shift
+            # On évite Yacine si possible, sinon on prend la plus grande disponibilité
             candidats_cls.sort(key=lambda x: (1 if "yacine" in x[0].lower() else 0, -x[1]))
             
             if candidats_cls: 
                 elu = candidats_cls[0][0]
-                # On assigne la tâche (max 2 heures)
-                assigner_tache(elu, "CLS", index_depart, min(candidats_cls[0][1], nb_creneaux))
+                longueur_reelle = min(candidats_cls[0][1], nb_creneaux)
+                assigner_tache(elu, "CLS", index_depart, longueur_reelle)
                 compteur_cls[elu] += 1
 
     # --- ETAPE 0 : LE CLOSER ---
