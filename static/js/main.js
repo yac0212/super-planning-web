@@ -321,10 +321,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const grid = document.getElementById('interim-grid');
         grid.innerHTML = '';
         
-        // Convertir les dates JJ/MM/YYYY en objets Date
+        // Convertir les dates YYYY-MM-DD en objets Date
         function parseDate(str) {
-            const [d, m, y] = str.split('/');
-            return new Date(`${y}-${m}-${d}`);
+            if (!str) return new Date(NaN);
+            const parts = str.split('-');
+            if (parts.length === 3) return new Date(`${parts[0]}-${parts[1]}-${parts[2]}`);
+            return new Date(NaN);
         }
         function formatDate(date) {
             return `${String(date.getDate()).padStart(2,'0')}/${String(date.getMonth()+1).padStart(2,'0')}/${date.getFullYear()}`;
@@ -395,10 +397,16 @@ document.addEventListener('DOMContentLoaded', () => {
             grille_parts.push(`${date};${m1};${m2};${a1};${a2}`);
         });
         const grille_data = grille_parts.join('|');
+        // start et end sont au format YYYY-MM-DD
+        const formatDateForDisplay = (str) => {
+            const p = str.split('-');
+            return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : str;
+        };
+        const datesResume = `Du ${formatDateForDisplay(start)} au ${formatDateForDisplay(end)}`;
         
         const res = await apiCall('/api/interim', 'POST', {
             absent,
-            dates_resume: `Du ${start} au ${end}`,
+            dates_resume: datesResume,
             grille_data
         });
         
@@ -470,9 +478,10 @@ document.addEventListener('DOMContentLoaded', () => {
             loadInterimRequests();
             
             // Générer et afficher automatiquement le planning pour la première date impactée
-            const firstDateStr = grille_data.split('|')[0].split(';')[0];
+            const firstDateStr = grille_data.split('|')[0].split(';')[0]; // format DD/MM/YYYY
             if (firstDateStr) {
-                const dataToGen = await apiCall(`/api/planning/${firstDateStr.replace(/\//g, '-')}`);
+                const apiDate = firstDateStr.replace(/\//g, '-');
+                const dataToGen = await apiCall(`/api/planning/${apiDate}`);
                 if (dataToGen && dataToGen.length > 0) {
                     const inputsList = {};
                     dataToGen.forEach(d => {
@@ -495,9 +504,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             // Recharger le planning depuis la BDD pour effacer l'absent et mettre à jour l'intérimaire
-            const currentDateStr = document.getElementById('planning-date').value;
+            const currentDateVal = document.getElementById('planning-date').value; // YYYY-MM-DD
+            const parts = currentDateVal.split('-');
+            const currentApiDate = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : currentDateVal;
+            
             await refreshPlanning();
-            const savedData = await apiCall(`/api/planning/${currentDateStr.replace(/\//g, '-')}`);
+            const savedData = await apiCall(`/api/planning/${currentApiDate}`);
             if (savedData && savedData.length > 0) {
                 const planRows = document.querySelectorAll('.planning-row');
                 planRows.forEach(row => {
