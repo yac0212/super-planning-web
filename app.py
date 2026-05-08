@@ -140,9 +140,9 @@ def generate_pauses():
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap');
         @page {{ size: A4 landscape; margin: 10mm; }}
         body {{ font-family: 'Poppins', sans-serif; font-size: 11px; padding: 0; margin: 0; background: #fafafa; -webkit-print-color-adjust: exact; color: #333; }}
-        .main-container {{ background: white; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.05); padding: 15px; margin: 10px auto; width: 95%; max-width: 1100px; }}
+        .main-container {{ background: white; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.05); padding: 15px 20px; margin: 10px auto; width: max-content; min-width: 650px; max-width: 95%; }}
         h2 {{ text-align: center; color: #1a1a1a; margin: 0 0 10px 0; font-size: 18px; font-weight: 700; }}
-        h3 {{ color: #2CC985; margin: 5px 0 2px 0; font-size: 14px; }}
+        h3 {{ color: #2CC985; margin: 5px 0 2px 0; font-size: 14px; text-align: center; }}
         table {{ border-collapse: separate; border-spacing: 0; width: 100%; table-layout: fixed; border-radius: 6px; overflow: hidden; border: 1px solid #555; margin-bottom: 10px; }}
         th, td {{ border-right: 1px solid #555; border-bottom: 1px solid #999; text-align: center; padding: 4px; height: 20px; }}
         th:last-child, td:last-child {{ border-right: none; }}
@@ -152,15 +152,15 @@ def generate_pauses():
         td[contenteditable='true'] {{ cursor: text; outline: none; }}
         td:focus {{ background: #fff !important; border: 2px solid #3498db; z-index: 10; box-shadow: 0 0 10px rgba(52,152,219,0.3); }}
         
-        .col-nom {{ width: 28%; text-align: left; padding-left: 10px; white-space: nowrap; overflow: hidden; }}
-        .col-duree {{ width: 14%; }}
-        .col-fin {{ width: 18%; }}
-        .col-depart {{ width: 20%; }}
-        .col-retour {{ width: 20%; }}
+        .col-nom {{ width: 170px; text-align: left; padding-left: 10px; white-space: nowrap; overflow: hidden; }}
+        .col-duree {{ width: 100px; }}
+        .col-fin {{ width: 110px; }}
+        .col-depart {{ width: 120px; }}
+        .col-retour {{ width: 120px; }}
 
         @media print {{
             body {{ background: transparent; padding: 0; margin: 0; zoom: 1; }}
-            .main-container {{ box-shadow: none; border: none; width: 100%; padding: 0; margin: 0; }}
+            .main-container {{ box-shadow: none; border: none; padding: 0; margin: 0 auto; width: max-content; }}
             .no-print {{ display: none !important; }}
         }}
         .btn-container {{ text-align: center; margin-top: 15px; display: flex; justify-content: center; gap: 15px; }}
