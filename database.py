@@ -119,9 +119,9 @@ def delete_demande_interim(req_id):
 
 def transfer_horaires(nom_absent, nom_remplacant, date_jour, m1, m2, a1, a2):
     conn = get_db_connection()
-    conn.execute("DELETE FROM sauvegarde_historique WHERE date_str=? AND nom=?", (date_jour, nom_remplacant))
-    conn.execute("UPDATE sauvegarde_historique SET nom=? WHERE nom=? AND date_str=?", (nom_remplacant, nom_absent, date_jour))
-    verif = conn.execute("SELECT 1 FROM sauvegarde_historique WHERE nom=? AND date_str=?", (nom_remplacant, date_jour)).fetchone()
+    conn.execute("DELETE FROM sauvegarde_historique WHERE date_str=? AND LOWER(nom)=LOWER(?)", (date_jour, nom_remplacant))
+    conn.execute("UPDATE sauvegarde_historique SET nom=? WHERE LOWER(nom)=LOWER(?) AND date_str=?", (nom_remplacant, nom_absent, date_jour))
+    verif = conn.execute("SELECT 1 FROM sauvegarde_historique WHERE LOWER(nom)=LOWER(?) AND date_str=?", (nom_remplacant, date_jour)).fetchone()
     if not verif:
         conn.execute("INSERT INTO sauvegarde_historique VALUES (?,?,?,?,?,?)", (date_jour, nom_remplacant, m1, m2, a1, a2))
     conn.commit()
