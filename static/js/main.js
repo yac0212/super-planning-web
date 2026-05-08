@@ -207,66 +207,77 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         
-        const dateStr = prompt(`Dates disponibles: \n${dates.join('\n')}\nEntrez la date (JJ/MM/YYYY):`, dates[0]);
-        if (dateStr) {
-            const data = await apiCall(`/api/planning/${dateStr.replace(/\//g, '-')}`);
-            if (data && data.length > 0) {
-                document.getElementById('planning-date').value = dateStr;
-                const parts = dateStr.split('/');
-                currentDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+        const select = document.getElementById('load-planning-select');
+        select.innerHTML = '';
+        dates.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d;
+            opt.textContent = d;
+            select.appendChild(opt);
+        });
+        
+        document.getElementById('load-planning-modal').classList.add('active');
+    });
+
+    document.getElementById('load-planning-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const dateStr = document.getElementById('load-planning-select').value;
+        if (!dateStr) return;
+        
+        closeModal('load-planning-modal');
+        
+        const data = await apiCall(`/api/planning/${dateStr.replace(/\//g, '-')}`);
+        if (data && data.length > 0) {
+            document.getElementById('planning-date').value = dateStr;
+            const parts = dateStr.split('/');
+            currentDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+            
+            await refreshPlanning();
+            
+            const rows = document.querySelectorAll('.planning-row');
+            const nomsDejaRemplis = new Set();
+            
+            rows.forEach(row => {
+                const nomRow = row.dataset.nom.toLowerCase().trim();
+                let saved = data.find(d => d.nom.toLowerCase().trim() === nomRow);
                 
-                await refreshPlanning();
+                if (!saved) {
+                    saved = data.find(d => {
+                        const nomSaved = d.nom.toLowerCase().trim();
+                        return nomRow.includes(nomSaved) || nomSaved.includes(nomRow);
+                    });
+                }
                 
-                const rows = document.querySelectorAll('.planning-row');
-                const nomsDejaRemplis = new Set();
+                if (saved) {
+                    row.querySelector('.m1').value = saved.ms || '';
+                    row.querySelector('.m2').value = saved.me || '';
+                    row.querySelector('.a1').value = saved.aes || '';
+                    row.querySelector('.a2').value = saved.aee || '';
+                    nomsDejaRemplis.add(saved.nom.toLowerCase().trim());
+                }
+            });
+            
+            const list = document.getElementById('planning-list');
+            data.forEach(saved => {
+                if (nomsDejaRemplis.has(saved.nom.toLowerCase().trim())) return;
+                if (!saved.ms && !saved.aes) return;
                 
-                // Correspondance flexible : exacte d'abord, puis partielle
-                rows.forEach(row => {
-                    const nomRow = row.dataset.nom.toLowerCase().trim();
-                    
-                    // 1. Correspondance exacte
-                    let saved = data.find(d => d.nom.toLowerCase().trim() === nomRow);
-                    
-                    // 2. Correspondance partielle (l'un contient l'autre)
-                    if (!saved) {
-                        saved = data.find(d => {
-                            const nomSaved = d.nom.toLowerCase().trim();
-                            return nomRow.includes(nomSaved) || nomSaved.includes(nomRow);
-                        });
-                    }
-                    
-                    if (saved) {
-                        row.querySelector('.m1').value = saved.ms || '';
-                        row.querySelector('.m2').value = saved.me || '';
-                        row.querySelector('.a1').value = saved.aes || '';
-                        row.querySelector('.a2').value = saved.aee || '';
-                        nomsDejaRemplis.add(saved.nom.toLowerCase().trim());
-                    }
-                });
-                
-                // Ajouter les entrées sauvegardées sans correspondance dans l'équipe actuelle
-                const list = document.getElementById('planning-list');
-                data.forEach(saved => {
-                    if (nomsDejaRemplis.has(saved.nom.toLowerCase().trim())) return;
-                    if (!saved.ms && !saved.aes) return;
-                    
-                    const row = document.createElement('div');
-                    row.className = 'planning-row';
-                    row.dataset.nom = saved.nom;
-                    row.innerHTML = `
-                        <div class="name" style="color: var(--warning);">${saved.nom} <small>(non inscrit)</small></div>
-                        <div class="time-inputs matin">
-                            <input type="text" class="m1" placeholder="09:00" value="${saved.ms || ''}">
-                            <input type="text" class="m2" placeholder="13:00" value="${saved.me || ''}">
-                        </div>
-                        <div class="time-inputs aprem">
-                            <input type="text" class="a1" placeholder="14:00" value="${saved.aes || ''}">
-                            <input type="text" class="a2" placeholder="19:00" value="${saved.aee || ''}">
-                        </div>
-                    `;
-                    list.appendChild(row);
-                });
-            }
+                const row = document.createElement('div');
+                row.className = 'planning-row';
+                row.dataset.nom = saved.nom;
+                row.innerHTML = `
+                    <div class="name" style="color: var(--warning);">${saved.nom} <small>(non inscrit)</small></div>
+                    <div class="time-inputs matin">
+                        <input type="text" class="m1" placeholder="09:00" value="${saved.ms || ''}">
+                        <input type="text" class="m2" placeholder="13:00" value="${saved.me || ''}">
+                    </div>
+                    <div class="time-inputs aprem">
+                        <input type="text" class="a1" placeholder="14:00" value="${saved.aes || ''}">
+                        <input type="text" class="a2" placeholder="19:00" value="${saved.aee || ''}">
+                    </div>
+                `;
+                list.appendChild(row);
+            });
         }
     });
 
@@ -666,6 +677,23 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (err) {
             statusDiv.innerHTML = `<div class="glass-card" style="padding:12px; color:#dc2626;">❌ Erreur de connexion.</div>`;
+        }
+    });
+
+    // === AUTO FORMAT HORAIRES ===
+    document.addEventListener('input', (e) => {
+        if (e.target.matches('.m1, .m2, .a1, .a2, .im1, .im2, .ia1, .ia2')) {
+            if (e.inputType && e.inputType.startsWith('delete')) return;
+            let v = e.target.value.replace(/[^\d:]/g, '');
+            
+            if (v.length === 2 && !v.includes(':')) {
+                v = v + ':';
+            } else if (v.length > 2 && !v.includes(':')) {
+                v = v.substring(0, 2) + ':' + v.substring(2, 4);
+            }
+            
+            if (v.length > 5) v = v.substring(0, 5);
+            e.target.value = v;
         }
     });
 
