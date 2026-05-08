@@ -137,7 +137,8 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
             candidats_cls = []
             for nom in employes_presents:
                 # Vérifier si l'employé est autorisé et disponible
-                if cache_emp.get(nom, {}).get('restriction_cls') or is_blacklisted(nom) or compteur_cls[nom] >= 1: 
+                infos = cache_emp.get(nom, {'statut': 'CDI', 'restriction_cls': False, 'restriction_handicap': 'Aucun'})
+                if infos.get('restriction_cls') or is_blacklisted(nom) or compteur_cls[nom] >= 1: 
                     continue
                 
                 indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
@@ -160,7 +161,7 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
         if start_soir_idx is not None:
             candidats_disponibles = []
             for nom in employes_presents:
-                infos = cache_emp[nom]
+                infos = cache_emp.get(nom, {'statut': 'CDI', 'restriction_cls': False, 'restriction_handicap': 'Aucun'})
                 if infos['restriction_cls'] or infos['statut'] == "Interimaire" or is_blacklisted(nom) or is_same_person(nom, closer_veille): 
                     continue
                     
@@ -174,7 +175,8 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
             
             if not candidats_disponibles:
                 for nom in employes_presents:
-                    if not cache_emp[nom]['restriction_cls']:
+                    infos = cache_emp.get(nom, {'statut': 'CDI', 'restriction_cls': False, 'restriction_handicap': 'Aucun'})
+                    if not infos['restriction_cls']:
                         indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
                         if start_soir_idx in indices_libres: 
                             candidats_disponibles.append((nom, get_continuous_block(indices_libres, start_soir_idx)))
@@ -195,7 +197,8 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
             if not any(matrice_planning[i][x] == "CLS" for x in range(len(employes_presents))):
                 candidats_disponibles = []
                 for nom in employes_presents:
-                    if nom == closer_assigne or cache_emp[nom]['restriction_cls'] or is_blacklisted(nom) or compteur_cls[nom] >= 1: 
+                    infos = cache_emp.get(nom, {'statut': 'CDI', 'restriction_cls': False, 'restriction_handicap': 'Aucun'})
+                    if nom == closer_assigne or infos['restriction_cls'] or is_blacklisted(nom) or compteur_cls[nom] >= 1: 
                         continue
                     indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
                     if i in indices_libres: 
@@ -225,7 +228,7 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
                 continue
                 
             def score_pause(c):
-                infos = cache_emp[c['nom']]
+                infos = cache_emp.get(c['nom'], {'statut': 'CDI', 'restriction_cls': False, 'restriction_handicap': 'Aucun'})
                 score = 1000 if infos['statut'] != "Interimaire" else 0
                 if c['nom'] == closer_assigne: score -= 5000
                 return score + min(c['longueur'], restant) * 10 - db.get_mission_score(c['nom']) * 5
@@ -261,7 +264,7 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
                 continue
                 
             def score_pause_a(c):
-                infos = cache_emp[c['nom']]
+                infos = cache_emp.get(c['nom'], {'statut': 'CDI', 'restriction_cls': False, 'restriction_handicap': 'Aucun'})
                 score = 1000 if infos['statut'] != "Interimaire" else 0
                 if c['nom'] == closer_assigne: score -= 5000
                 return score + min(c['longueur'], restant) * 10 - db.get_mission_score(c['nom']) * 5
