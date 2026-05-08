@@ -248,7 +248,7 @@ def generate_planning():
         th:last-child, td:last-child {{ border-right: none; }}
         tr:last-child td {{ border-bottom: none; }}
         
-        th {{ background: #2CC985; color: white; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #24a871; padding: 8px 0; }}
+        th {{ background: #2CC985; color: white; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #24a871; padding: 4px 0; }}
         .time-range {{ display: block; font-size: 9px; opacity: 0.8; font-weight: 400; margin-top: 1px; }}
         
         .name {{ width: 130px !important; font-size: 10px !important; text-align: left; padding-left: 15px; background: #f9fafb; font-weight: 600; color: #1a1a1a; border-right: 1px solid #555; }}
@@ -291,23 +291,21 @@ def generate_planning():
     </head><body>
     
     <div class="main-container">
-        <h1>Planning {jour_fr} {date_saisie}</h1>
-        <div class="sub-title-bar">
-            <div>Veille: {closer_veille if closer_veille else 'Inconnu'}</div>
-            <div>{infos_pauses}</div>
+        <h1 style="text-align:center; font-size: 15px; margin-bottom: 5px; text-transform: uppercase;">PLANNING {jour_fr} {date_saisie} <span style="font-size: 11px; color: #555; font-weight: normal;">(Veille: {closer_veille if closer_veille else 'Inconnu'})</span></h1>
+        <div style="text-align: center; font-size: 10px; font-weight: 600; color: #166534; background: #f0fdf4; border: 1px solid #dcfce7; padding: 4px; border-radius: 5px; margin-bottom: 10px;">
+            {infos_pauses}
         </div>
         
         <table>
             <thead>
                 <tr>
-                    <th class='name'>Employé</th>
+                    <th class='name' style='background: #2CC985; color: white;'>Employé</th>
     """
     
     for h in range(9, 20): 
         html += f"""
             <th>
-                {h}H
-                <span class="time-range">{h}H - {h+1}H</span>
+                {h}H - {h+1}H
             </th>
         """
     html += "</tr></thead><tbody>"
