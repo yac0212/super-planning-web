@@ -138,46 +138,61 @@ def generate_pauses():
     html = f"""<!DOCTYPE html><html><head><meta charset='utf-8'>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap');
-        @page {{ size: A4 portrait; margin: 10mm; }}
-        body {{ font-family: 'Poppins', sans-serif; font-size: 12px; padding: 0; margin: 0; background: #fafafa; -webkit-print-color-adjust: exact; color: #333; }}
-        .main-container {{ background: white; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); padding: 20px; margin: 10px auto; width: 90%; }}
-        h2 {{ text-align: center; color: #1a1a1a; margin: 0 0 15px 0; font-size: 24px; font-weight: 700; }}
-        h3 {{ color: #2CC985; margin-bottom: 5px; }}
-        table {{ border-collapse: separate; border-spacing: 0; width: 100%; table-layout: fixed; border-radius: 8px; overflow: hidden; border: 1px solid #555; margin-bottom: 20px; }}
-        th, td {{ border-right: 1px solid #555; border-bottom: 1px solid #999; text-align: center; padding: 10px; }}
+        @page {{ size: A4 landscape; margin: 10mm; }}
+        body {{ font-family: 'Poppins', sans-serif; font-size: 11px; padding: 0; margin: 0; background: #fafafa; -webkit-print-color-adjust: exact; color: #333; }}
+        .main-container {{ background: white; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.05); padding: 15px; margin: 10px auto; width: 95%; max-width: 1100px; }}
+        h2 {{ text-align: center; color: #1a1a1a; margin: 0 0 10px 0; font-size: 18px; font-weight: 700; }}
+        h3 {{ color: #2CC985; margin: 5px 0 2px 0; font-size: 14px; }}
+        table {{ border-collapse: separate; border-spacing: 0; width: 100%; table-layout: fixed; border-radius: 6px; overflow: hidden; border: 1px solid #555; margin-bottom: 10px; }}
+        th, td {{ border-right: 1px solid #555; border-bottom: 1px solid #999; text-align: center; padding: 4px; height: 20px; }}
         th:last-child, td:last-child {{ border-right: none; }}
         tr:last-child td {{ border-bottom: none; }}
-        th {{ background: #2CC985; color: white; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #24a871; }}
+        th {{ background: #2CC985; color: white; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #24a871; }}
         tr:nth-child(even) td {{ background: #f3f4f6; }}
         td[contenteditable='true'] {{ cursor: text; outline: none; }}
         td:focus {{ background: #fff !important; border: 2px solid #3498db; z-index: 10; box-shadow: 0 0 10px rgba(52,152,219,0.3); }}
+        
+        .col-nom {{ width: 28%; text-align: left; padding-left: 10px; white-space: nowrap; overflow: hidden; }}
+        .col-duree {{ width: 14%; }}
+        .col-fin {{ width: 18%; }}
+        .col-depart {{ width: 20%; }}
+        .col-retour {{ width: 20%; }}
+
         @media print {{
             body {{ background: transparent; padding: 0; margin: 0; zoom: 1; }}
             .main-container {{ box-shadow: none; border: none; width: 100%; padding: 0; margin: 0; }}
             .no-print {{ display: none !important; }}
         }}
-        .btn-container {{ text-align: center; margin-top: 25px; display: flex; justify-content: center; gap: 15px; }}
-        .btn-print, .btn-download {{ padding: 12px 28px; text-decoration: none; border-radius: 30px; font-weight: 600; display: inline-block; cursor: pointer; border: none; font-size: 14px; transition: all 0.2s; color: white; }}
+        .btn-container {{ text-align: center; margin-top: 15px; display: flex; justify-content: center; gap: 15px; }}
+        .btn-print, .btn-download {{ padding: 10px 20px; text-decoration: none; border-radius: 30px; font-weight: 600; display: inline-block; cursor: pointer; border: none; font-size: 12px; transition: all 0.2s; color: white; }}
         .btn-print {{ background: #2CC985; box-shadow: 0 4px 10px rgba(44, 201, 133, 0.2); }}
         .btn-download {{ background: #3b82f6; box-shadow: 0 4px 10px rgba(59, 130, 246, 0.2); }}
     </style></head><body>
-    <div class="main-container">
-        <h2>FEUILLE DE PAUSES - {jour_fr} {date_saisie}</h2>
     """
     
-    html += "<h3>MATIN</h3><table><tr><th>Nom</th><th>Durée Acquise</th><th>Fin Théorique</th><th>Heure Départ</th><th>Heure Retour</th></tr>"
+    html += f"""
+    <div class="main-container">
+        <h2>FEUILLE DE PAUSES - {jour_fr} {date_saisie}</h2>
+        <h3>MATIN</h3>
+        <table><tr><th class="col-nom">Nom</th><th class="col-duree">Durée Acquise</th><th class="col-fin">Fin Théorique</th><th class="col-depart">Heure Départ</th><th class="col-retour">Heure Retour</th></tr>
+    """
     for p in pauses_matin: 
-        html += f"<tr><td contenteditable='true' style='font-weight:600; text-align:left; padding-left:15px;'>{p['nom'].title()}</td><td contenteditable='true'>{p['duree']} min</td><td style='color:#555;' contenteditable='true'>Fin {p['fin'].strftime('%H:%M')}</td><td contenteditable='true'></td><td contenteditable='true'></td></tr>"
-    html += "</table>"
+        html += f"<tr><td class='col-nom' contenteditable='true' style='font-weight:600;'>{p['nom'].title()}</td><td class='col-duree' contenteditable='true'>{p['duree']} min</td><td class='col-fin' style='color:#555;' contenteditable='true'>Fin {p['fin'].strftime('%H:%M')}</td><td class='col-depart' contenteditable='true'></td><td class='col-retour' contenteditable='true'></td></tr>"
+    html += "</table></div>"
     
     html += "<div style=\"page-break-after: always;\"></div>"
     
-    html += "<h3>APRÈS-MIDI</h3><table><tr><th>Nom</th><th>Durée Acquise</th><th>Fin Théorique</th><th>Heure Départ</th><th>Heure Retour</th></tr>"
+    html += f"""
+    <div class="main-container">
+        <h2>FEUILLE DE PAUSES - {jour_fr} {date_saisie}</h2>
+        <h3>APRÈS-MIDI</h3>
+        <table><tr><th class="col-nom">Nom</th><th class="col-duree">Durée Acquise</th><th class="col-fin">Fin Théorique</th><th class="col-depart">Heure Départ</th><th class="col-retour">Heure Retour</th></tr>
+    """
     for p in pauses_aprem: 
-        html += f"<tr><td contenteditable='true' style='font-weight:600; text-align:left; padding-left:15px;'>{p['nom'].title()}</td><td contenteditable='true'>{p['duree']} min</td><td style='color:#555;' contenteditable='true'>Fin {p['fin'].strftime('%H:%M')}</td><td contenteditable='true'></td><td contenteditable='true'></td></tr>"
-    html += "</table>"
+        html += f"<tr><td class='col-nom' contenteditable='true' style='font-weight:600;'>{p['nom'].title()}</td><td class='col-duree' contenteditable='true'>{p['duree']} min</td><td class='col-fin' style='color:#555;' contenteditable='true'>Fin {p['fin'].strftime('%H:%M')}</td><td class='col-depart' contenteditable='true'></td><td class='col-retour' contenteditable='true'></td></tr>"
+    html += "</table></div>"
     
-    html += "</div><div class='no-print btn-container'>"
+    html += "<div class='no-print btn-container'>"
     html += "<button class='btn-print' onclick='window.print()'>🖨️ IMPRIMER</button>"
     html += f"<button class='btn-download' onclick='downloadHTML()'>💾 SAUVEGARDER SUR MON PC</button>"
     html += "</div>"
