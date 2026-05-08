@@ -23,22 +23,83 @@ document.addEventListener('DOMContentLoaded', () => {
     // === GLOBAL STATE ===
     let currentDate = new Date();
     
-    function formatDate(date) {
-        return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')}/${date.getFullYear()}`;
+    function updateDateDisplay() {
+        const year = currentDate.getFullYear();
+        const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+        const day = String(currentDate.getDate()).padStart(2, '0');
+        document.getElementById('planning-date').value = `${year}-${month}-${day}`;
     }
     
-    document.getElementById('planning-date').value = formatDate(currentDate);
+    updateDateDisplay();
 
-    document.getElementById('btn-prev-day').addEventListener('click', () => {
-        currentDate.setDate(currentDate.getDate() - 1);
-        document.getElementById('planning-date').value = formatDate(currentDate);
-        refreshPlanning();
-    });
-    
-    document.getElementById('btn-next-day').addEventListener('click', () => {
-        currentDate.setDate(currentDate.getDate() + 1);
-        document.getElementById('planning-date').value = formatDate(currentDate);
-        refreshPlanning();
+    function fillPlanningGrid(data) {
+        const rows = document.querySelectorAll('.planning-row');
+        const nomsDejaRemplis = new Set();
+        
+        rows.forEach(row => {
+            const nomRow = row.dataset.nom.toLowerCase().trim();
+            let saved = data.find(d => d.nom.toLowerCase().trim() === nomRow);
+            if (!saved) {
+                saved = data.find(d => {
+                    const nomSaved = d.nom.toLowerCase().trim();
+                    return nomRow.includes(nomSaved) || nomSaved.includes(nomRow);
+                });
+            }
+            if (saved) {
+                row.querySelector('.m1').value = saved.ms || '';
+                row.querySelector('.m2').value = saved.me || '';
+                row.querySelector('.a1').value = saved.aes || '';
+                row.querySelector('.a2').value = saved.aee || '';
+                nomsDejaRemplis.add(saved.nom.toLowerCase().trim());
+            }
+        });
+        
+        const list = document.getElementById('planning-list');
+        data.forEach(saved => {
+            if (nomsDejaRemplis.has(saved.nom.toLowerCase().trim())) return;
+            if (!saved.ms && !saved.aes) return;
+            
+            const row = document.createElement('div');
+            row.className = 'planning-row';
+            row.dataset.nom = saved.nom;
+            row.innerHTML = `
+                <div class="name" style="color: var(--warning);">${saved.nom} <small>(non inscrit)</small></div>
+                <div class="time-inputs matin">
+                    <input type="text" class="m1" placeholder="09:00" value="${saved.ms || ''}">
+                    <input type="text" class="m2" placeholder="13:00" value="${saved.me || ''}">
+                </div>
+                <div class="time-inputs aprem">
+                    <input type="text" class="a1" placeholder="14:00" value="${saved.aes || ''}">
+                    <input type="text" class="a2" placeholder="19:00" value="${saved.aee || ''}">
+                </div>
+            `;
+            list.appendChild(row);
+        });
+    }
+
+    async function handleDateChange() {
+        await refreshPlanning();
+        const year = currentDate.getFullYear();
+        const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+        const day = String(currentDate.getDate()).padStart(2, '0');
+        const dateFormatted = `${day}-${month}-${year}`;
+        const data = await apiCall(`/api/planning/${dateFormatted}`);
+        if (data && data.length > 0) {
+            fillPlanningGrid(data);
+        }
+    }
+
+    window.changeDate = async (days) => {
+        currentDate.setDate(currentDate.getDate() + days);
+        updateDateDisplay();
+        await handleDateChange();
+    };
+
+    document.getElementById('planning-date').addEventListener('change', async (e) => {
+        if (e.target.value) {
+            currentDate = new Date(e.target.value);
+            await handleDateChange();
+        }
     });
 
     // === API HELPERS ===
@@ -193,98 +254,24 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     document.getElementById('btn-save-planning').addEventListener('click', async () => {
-        const dateStr = document.getElementById('planning-date').value;
+        const rawDate = document.getElementById('planning-date').value;
+        const parts = rawDate.split('-');
+        const dateStr = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : rawDate;
+        
         const { inputsList } = getPlanningInputs();
         
         const res = await apiCall(`/api/planning/${dateStr.replace(/\//g, '-')}`, 'POST', inputsList);
         if (res) alert('Horaires enregistrés !');
     });
 
-    document.getElementById('btn-load-planning').addEventListener('click', async () => {
-        const dates = await apiCall('/api/planning/dates');
-        if (!dates || dates.length === 0) {
-            alert('Aucune sauvegarde trouvée.');
-            return;
-        }
-        
-        const select = document.getElementById('load-planning-select');
-        select.innerHTML = '';
-        dates.forEach(d => {
-            const opt = document.createElement('option');
-            opt.value = d;
-            opt.textContent = d;
-            select.appendChild(opt);
-        });
-        
-        document.getElementById('load-planning-modal').classList.add('active');
-    });
-
-    document.getElementById('load-planning-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const dateStr = document.getElementById('load-planning-select').value;
-        if (!dateStr) return;
-        
-        closeModal('load-planning-modal');
-        
-        const data = await apiCall(`/api/planning/${dateStr.replace(/\//g, '-')}`);
-        if (data && data.length > 0) {
-            document.getElementById('planning-date').value = dateStr;
-            const parts = dateStr.split('/');
-            currentDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
-            
-            await refreshPlanning();
-            
-            const rows = document.querySelectorAll('.planning-row');
-            const nomsDejaRemplis = new Set();
-            
-            rows.forEach(row => {
-                const nomRow = row.dataset.nom.toLowerCase().trim();
-                let saved = data.find(d => d.nom.toLowerCase().trim() === nomRow);
-                
-                if (!saved) {
-                    saved = data.find(d => {
-                        const nomSaved = d.nom.toLowerCase().trim();
-                        return nomRow.includes(nomSaved) || nomSaved.includes(nomRow);
-                    });
-                }
-                
-                if (saved) {
-                    row.querySelector('.m1').value = saved.ms || '';
-                    row.querySelector('.m2').value = saved.me || '';
-                    row.querySelector('.a1').value = saved.aes || '';
-                    row.querySelector('.a2').value = saved.aee || '';
-                    nomsDejaRemplis.add(saved.nom.toLowerCase().trim());
-                }
-            });
-            
-            const list = document.getElementById('planning-list');
-            data.forEach(saved => {
-                if (nomsDejaRemplis.has(saved.nom.toLowerCase().trim())) return;
-                if (!saved.ms && !saved.aes) return;
-                
-                const row = document.createElement('div');
-                row.className = 'planning-row';
-                row.dataset.nom = saved.nom;
-                row.innerHTML = `
-                    <div class="name" style="color: var(--warning);">${saved.nom} <small>(non inscrit)</small></div>
-                    <div class="time-inputs matin">
-                        <input type="text" class="m1" placeholder="09:00" value="${saved.ms || ''}">
-                        <input type="text" class="m2" placeholder="13:00" value="${saved.me || ''}">
-                    </div>
-                    <div class="time-inputs aprem">
-                        <input type="text" class="a1" placeholder="14:00" value="${saved.aes || ''}">
-                        <input type="text" class="a2" placeholder="19:00" value="${saved.aee || ''}">
-                    </div>
-                `;
-                list.appendChild(row);
-            });
-        }
-    });
-
     document.getElementById('btn-generate-pauses').addEventListener('click', async () => {
+        const rawDate = document.getElementById('planning-date').value;
+        const parts = rawDate.split('-');
+        const dateStr = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : rawDate;
+        
         const { inputs } = getPlanningInputs();
         const data = {
-            date: document.getElementById('planning-date').value,
+            date: dateStr,
             inputs: inputs
         };
         const res = await apiCall('/api/generate_pauses', 'POST', data);
@@ -292,13 +279,17 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     document.getElementById('btn-generate-planning').addEventListener('click', async () => {
+        const rawDate = document.getElementById('planning-date').value;
+        const parts = rawDate.split('-');
+        const dateStr = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : rawDate;
+        
         const { inputs } = getPlanningInputs();
         if (Object.keys(inputs).length === 0) {
             alert("Veuillez saisir au moins un horaire.");
             return;
         }
         const data = {
-            date: document.getElementById('planning-date').value,
+            date: dateStr,
             inputs: inputs
         };
         const res = await apiCall('/api/generate_planning', 'POST', data);

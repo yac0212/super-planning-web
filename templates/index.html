@@ -43,11 +43,11 @@
             <section id="tab-planning" class="tab-pane active">
                 <div class="page-header">
                     <h1>Planification Journalière</h1>
-                    <div class="date-selector glass-card">
-                        <button id="btn-prev-day"><i data-lucide="chevron-left"></i></button>
-                        <input type="text" id="planning-date" value="" readonly>
-                        <button id="btn-next-day"><i data-lucide="chevron-right"></i></button>
-                    </div>
+                    <div class="date-selector">
+                    <button onclick="changeDate(-1)"><i data-lucide="chevron-left"></i></button>
+                    <input type="date" id="planning-date" style="background: rgba(0,0,0,0.3); color: white; border: 1px solid var(--glass-border); border-radius: 5px; padding: 5px; outline: none; cursor: pointer; color-scheme: dark; font-family: inherit;">
+                    <button onclick="changeDate(1)"><i data-lucide="chevron-right"></i></button>
+                </div>
                 </div>
 
                 <div class="toolbar glass-card">
@@ -210,20 +210,6 @@
                 <div class="modal-actions">
                     <button type="button" class="btn btn-secondary" onclick="closeModal('edit-emp-modal')">Annuler</button>
                     <button type="submit" class="btn btn-primary">Enregistrer</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <div class="modal" id="load-planning-modal">
-        <div class="modal-content glass-card">
-            <h2>Charger un planning</h2>
-            <p style="margin-bottom: 15px; color: var(--text-muted); font-size: 13px;">Sélectionnez une date parmi les sauvegardes disponibles :</p>
-            <form id="load-planning-form">
-                <select id="load-planning-select" size="6" style="width: 100%; margin-bottom: 20px; font-size: 15px; padding: 10px; border-radius: 8px; background: rgba(0,0,0,0.3); color: white; border: 1px solid var(--glass-border); outline: none;" required></select>
-                <div class="modal-actions">
-                    <button type="button" class="btn btn-secondary" onclick="closeModal('load-planning-modal')">Annuler</button>
-                    <button type="submit" class="btn btn-primary"><i data-lucide="check"></i> Charger</button>
                 </div>
             </form>
         </div>
