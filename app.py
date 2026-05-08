@@ -105,11 +105,19 @@ def save_planning(date_str):
     return jsonify({'success': True})
 
 # === GENERATE PAUSES ===
+JOURS_FR = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+
 @app.route('/api/generate_pauses', methods=['POST'])
 def generate_pauses():
     data = request.json
     date_saisie = data.get('date', datetime.now().strftime("%d/%m/%Y"))
     inputs_dict = data.get('inputs', {})
+    
+    try:
+        date_obj = datetime.strptime(date_saisie, "%d/%m/%Y")
+        jour_fr = JOURS_FR[date_obj.weekday()]
+    except:
+        jour_fr = ""
     
     pauses_matin, pauses_aprem = [], []
     for nom, times in inputs_dict.items():
@@ -127,21 +135,51 @@ def generate_pauses():
     pauses_matin.sort(key=lambda x: (x["fin"], x["debut"]))
     pauses_aprem.sort(key=lambda x: (x["fin"], x["debut"]))
 
-    html = f"<html><head><meta charset='utf-8'><style>body{{font-family:'Segoe UI', sans-serif;}} table{{width:100%;border-collapse:collapse;}} th,td{{border:1px solid #aaa;padding:8px;text-align:center;}} td[contenteditable='true']{{cursor:text;outline:none;}} td:focus{{background:#e8f4f8;}} @media print{{.no-print{{display:none;}}}}</style></head><body><h2>FEUILLE DE PAUSES - {date_saisie}</h2>"
+    html = f"""<!DOCTYPE html><html><head><meta charset='utf-8'>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap');
+        @page {{ size: A4 portrait; margin: 10mm; }}
+        body {{ font-family: 'Poppins', sans-serif; font-size: 12px; padding: 0; margin: 0; background: #fafafa; -webkit-print-color-adjust: exact; color: #333; }}
+        .main-container {{ background: white; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); padding: 20px; margin: 10px auto; width: 90%; }}
+        h2 {{ text-align: center; color: #1a1a1a; margin: 0 0 15px 0; font-size: 24px; font-weight: 700; }}
+        h3 {{ color: #2CC985; margin-bottom: 5px; }}
+        table {{ border-collapse: separate; border-spacing: 0; width: 100%; table-layout: fixed; border-radius: 8px; overflow: hidden; border: 1px solid #555; margin-bottom: 20px; }}
+        th, td {{ border-right: 1px solid #555; border-bottom: 1px solid #999; text-align: center; padding: 10px; }}
+        th:last-child, td:last-child {{ border-right: none; }}
+        tr:last-child td {{ border-bottom: none; }}
+        th {{ background: #2CC985; color: white; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #24a871; }}
+        tr:nth-child(even) td {{ background: #f3f4f6; }}
+        td[contenteditable='true'] {{ cursor: text; outline: none; }}
+        td:focus {{ background: #fff !important; border: 2px solid #3498db; z-index: 10; box-shadow: 0 0 10px rgba(52,152,219,0.3); }}
+        @media print {{
+            body {{ background: transparent; padding: 0; margin: 0; zoom: 1; }}
+            .main-container {{ box-shadow: none; border: none; width: 100%; padding: 0; margin: 0; }}
+            .no-print {{ display: none !important; }}
+        }}
+        .btn-container {{ text-align: center; margin-top: 25px; display: flex; justify-content: center; gap: 15px; }}
+        .btn-print, .btn-download {{ padding: 12px 28px; text-decoration: none; border-radius: 30px; font-weight: 600; display: inline-block; cursor: pointer; border: none; font-size: 14px; transition: all 0.2s; color: white; }}
+        .btn-print {{ background: #2CC985; box-shadow: 0 4px 10px rgba(44, 201, 133, 0.2); }}
+        .btn-download {{ background: #3b82f6; box-shadow: 0 4px 10px rgba(59, 130, 246, 0.2); }}
+    </style></head><body>
+    <div class="main-container">
+        <h2>FEUILLE DE PAUSES - {jour_fr} {date_saisie}</h2>
+    """
     
     html += "<h3>MATIN</h3><table><tr><th>Nom</th><th>Durée Acquise</th><th>Fin Théorique</th><th>Heure Départ</th><th>Heure Retour</th></tr>"
     for p in pauses_matin: 
-        html += f"<tr><td contenteditable='true'><b>{p['nom'].title()}</b></td><td contenteditable='true'>{p['duree']} min</td><td style='color:gray;' contenteditable='true'>Fin {p['fin'].strftime('%H:%M')}</td><td contenteditable='true'></td><td contenteditable='true'></td></tr>"
+        html += f"<tr><td contenteditable='true' style='font-weight:600; text-align:left; padding-left:15px;'>{p['nom'].title()}</td><td contenteditable='true'>{p['duree']} min</td><td style='color:#555;' contenteditable='true'>Fin {p['fin'].strftime('%H:%M')}</td><td contenteditable='true'></td><td contenteditable='true'></td></tr>"
     html += "</table>"
+    
+    html += "<div style=\"page-break-after: always;\"></div>"
     
     html += "<h3>APRÈS-MIDI</h3><table><tr><th>Nom</th><th>Durée Acquise</th><th>Fin Théorique</th><th>Heure Départ</th><th>Heure Retour</th></tr>"
     for p in pauses_aprem: 
-        html += f"<tr><td contenteditable='true'><b>{p['nom'].title()}</b></td><td contenteditable='true'>{p['duree']} min</td><td style='color:gray;' contenteditable='true'>Fin {p['fin'].strftime('%H:%M')}</td><td contenteditable='true'></td><td contenteditable='true'></td></tr>"
+        html += f"<tr><td contenteditable='true' style='font-weight:600; text-align:left; padding-left:15px;'>{p['nom'].title()}</td><td contenteditable='true'>{p['duree']} min</td><td style='color:#555;' contenteditable='true'>Fin {p['fin'].strftime('%H:%M')}</td><td contenteditable='true'></td><td contenteditable='true'></td></tr>"
     html += "</table>"
     
-    html += "<br><div class='no-print' style='text-align:center; display:flex; justify-content:center; gap:15px;'>"
-    html += "<button onclick='window.print()' style='padding:10px 20px; font-weight:bold; cursor:pointer; background:#2CC985; color:white; border:none; border-radius:5px;'>🖨️ IMPRIMER</button>"
-    html += f"<button onclick='downloadHTML()' style='padding:10px 20px; font-weight:bold; cursor:pointer; background:#3b82f6; color:white; border:none; border-radius:5px;'>💾 SAUVEGARDER SUR MON PC</button>"
+    html += "</div><div class='no-print btn-container'>"
+    html += "<button class='btn-print' onclick='window.print()'>🖨️ IMPRIMER</button>"
+    html += f"<button class='btn-download' onclick='downloadHTML()'>💾 SAUVEGARDER SUR MON PC</button>"
     html += "</div>"
     html += """<script>
         function downloadHTML() {
@@ -171,6 +209,12 @@ def generate_planning():
     data = request.json
     date_saisie = data.get('date', datetime.now().strftime("%d/%m/%Y"))
     inputs_dict = data.get('inputs', {})
+    
+    try:
+        date_obj = datetime.strptime(date_saisie, "%d/%m/%Y")
+        jour_fr = JOURS_FR[date_obj.weekday()]
+    except:
+        jour_fr = ""
     
     # Load cache_emp
     employes = db.get_employes()
@@ -207,10 +251,10 @@ def generate_planning():
         th {{ background: #2CC985; color: white; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #24a871; padding: 8px 0; }}
         .time-range {{ display: block; font-size: 9px; opacity: 0.8; font-weight: 400; margin-top: 1px; }}
         
-        .name {{ width: 160px; text-align: left; padding-left: 15px; background: #f9fafb; font-weight: 600; color: #1a1a1a; border-right: 1px solid #555; }}
+        .name {{ width: 130px !important; font-size: 10px !important; text-align: left; padding-left: 15px; background: #f9fafb; font-weight: 600; color: #1a1a1a; border-right: 1px solid #555; }}
         tr:nth-child(even) td.name {{ background: #f3f4f6; }}
         
-        .hour-cell {{ display: flex; width: 100%; height: 100%; position: relative; }}
+        .hour-cell {{ display: flex; width: 100%; height: 26px !important; position: relative; }}
         
         .sub-block {{ flex: 1; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 9px; letter-spacing: -0.5px; overflow: hidden; white-space: nowrap; cursor: text; outline: none; transition: background 0.2s; position: relative; margin: 1px 0; border-radius: 2px; border: 1px solid transparent; }}
         .sub-block:not(.bg-ABS):not(:empty) {{ box-shadow: 0 1px 2px rgba(0,0,0,0.05); }}
@@ -233,9 +277,9 @@ def generate_planning():
         [class^="bg-C"] {{ background: #0EA5E9 !important; color: white !important; border: 1px solid #0369A1 !important; }}
         
         @media print {{ 
-            body {{ background: transparent; padding: 0; margin: 0; }}
+            body {{ zoom: 0.8; background: transparent; padding: 0; margin: 0; }}
             .main-container {{ box-shadow: none; border: none; width: 100%; padding: 0; margin: 0; }}
-            table {{ border: 1px solid #555; }}
+            table {{ border: 1px solid #555; page-break-inside: avoid; }}
             .no-print {{ display: none !important; }}
             .sub-block {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
         }}
@@ -247,7 +291,7 @@ def generate_planning():
     </head><body>
     
     <div class="main-container">
-        <h1>Planning {date_saisie}</h1>
+        <h1>Planning {jour_fr} {date_saisie}</h1>
         <div class="sub-title-bar">
             <div>Veille: {closer_veille if closer_veille else 'Inconnu'}</div>
             <div>{infos_pauses}</div>
@@ -528,6 +572,7 @@ def assign_interim():
     nom_absent = data['nom_absent']
     grille_data = data['grille_data']
     
+    last_date = ""
     jours = grille_data.split("|")
     for jour_data in jours:
         elements = jour_data.split(";")
@@ -535,9 +580,14 @@ def assign_interim():
             date_jour, m1, m2, a1, a2 = elements
             if not m1 and not a1: continue 
             db.transfer_horaires(nom_absent, nom_remplacant, date_jour, m1, m2, a1, a2)
+            last_date = date_jour
             
     db.delete_demande_interim(data['req_id'])
-    return jsonify({'success': True})
+    
+    url_planning = ""
+    if last_date:
+        url_planning = f'/files/plannings/Planning_A4_{last_date.replace("/","-")}.html'
+    return jsonify({'success': True, 'url': url_planning})
 
 # === ARCHIVES ===
 @app.route('/api/archives', methods=['GET'])
@@ -553,7 +603,24 @@ def get_archives():
         fichiers_pauses = []
         
     tous = sorted(fichiers_plannings + fichiers_pauses, key=lambda x: x['name'], reverse=True)
-    return jsonify(tous)
+    
+    groupes = {}
+    MOIS_FR = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
+    for item in tous:
+        try:
+            parts = item['name'].split('_')
+            date_str = parts[-1] 
+            d, m, y = date_str.split('/')
+            mois_nom = MOIS_FR[int(m)-1]
+            cle = f"{mois_nom} {y}"
+        except:
+            cle = "Autres"
+            
+        if cle not in groupes:
+            groupes[cle] = []
+        groupes[cle].append(item)
+        
+    return jsonify(groupes)
 
 # === STATS ===
 @app.route('/api/stats/<date_str>', methods=['GET'])
