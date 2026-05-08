@@ -239,9 +239,9 @@ def generate_planning():
         @page {{ size: A4 landscape; margin: 5mm; }}
         body {{ font-family: 'Poppins', sans-serif; font-size: 11px; padding: 0; margin: 0; background: #fafafa; -webkit-print-color-adjust: exact; color: #333; }}
         
-        .main-container {{ background: white; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); padding: 20px; margin: 10px auto; width: 96%; }}
-        h1 {{ text-align: center; color: #1a1a1a; margin: 0 0 5px 0; font-size: 26px; font-weight: 700; }}
-        .sub-title-bar {{ display: flex; justify-content: space-between; align-items: center; background: #f0fdf4; border: 1px solid #dcfce7; padding: 10px 20px; border-radius: 8px; margin-bottom: 20px; color: #166534; font-size: 12px; font-weight: 600; }}
+        .main-container {{ background: white; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); padding: 10px; margin: 5px auto; width: 98%; }}
+        h1 {{ text-align: center; color: #1a1a1a; margin: 0 0 2px 0; font-size: 20px; font-weight: 700; }}
+        .sub-title-bar {{ display: flex; justify-content: space-between; align-items: center; background: #f0fdf4; border: 1px solid #dcfce7; padding: 5px 15px; border-radius: 8px; margin-bottom: 10px; color: #166534; font-size: 11px; font-weight: 600; }}
         
         table {{ border-collapse: separate; border-spacing: 0; width: 100%; table-layout: fixed; border-radius: 8px; overflow: hidden; border: 1px solid #555; }}
         th, td {{ border-right: 1px solid #555; border-bottom: 1px solid #999; text-align: center; height: 36px; padding: 0; position: relative; }}

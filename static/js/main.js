@@ -544,39 +544,26 @@ document.addEventListener('DOMContentLoaded', () => {
             
             const monthTitle = document.createElement('h2');
             monthTitle.textContent = mois;
-            monthTitle.style.borderBottom = '2px solid #2CC985';
+            monthTitle.style.borderBottom = '2px solid var(--primary)';
             monthTitle.style.paddingBottom = '8px';
             monthTitle.style.marginBottom = '15px';
-            monthTitle.style.color = '#1a1a1a';
+            monthTitle.style.color = 'var(--text-main)';
             monthTitle.style.fontSize = '18px';
             monthSection.appendChild(monthTitle);
             
             const filesGrid = document.createElement('div');
-            filesGrid.style.display = 'grid';
-            filesGrid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(220px, 1fr))';
-            filesGrid.style.gap = '15px';
+            filesGrid.className = 'archives-grid';
             
             fichiers.forEach(f => {
                 const card = document.createElement('div');
                 card.className = 'archive-card';
-                card.style.background = '#fff';
-                card.style.borderRadius = '8px';
-                card.style.padding = '15px';
-                card.style.boxShadow = '0 4px 6px rgba(0,0,0,0.05)';
-                card.style.cursor = 'pointer';
-                card.style.display = 'flex';
-                card.style.alignItems = 'center';
-                card.style.gap = '12px';
-                card.style.transition = 'transform 0.2s, box-shadow 0.2s';
-                card.onmouseover = () => { card.style.transform = 'translateY(-3px)'; card.style.boxShadow = '0 6px 12px rgba(0,0,0,0.1)'; };
-                card.onmouseout = () => { card.style.transform = 'translateY(0)'; card.style.boxShadow = '0 4px 6px rgba(0,0,0,0.05)'; };
                 
                 let icon = f.type === 'pauses' ? 'coffee' : 'calendar';
                 let displayName = f.name.replace('Planning_A4_', 'Planning ').replace('Feuille_Pauses_', 'Pauses ');
                 
                 card.innerHTML = `
-                    <div style="color: #2CC985; display: flex;"><i data-lucide="${icon}"></i></div>
-                    <div style="font-weight: 600; font-size: 13px; color: #333;">${displayName}</div>
+                    <div class="archive-icon"><i data-lucide="${icon}"></i></div>
+                    <div style="font-weight: 600; font-size: 13px;">${displayName}</div>
                 `;
                 card.addEventListener('click', () => {
                     window.open(`/files/${f.type}/${f.filename}`, '_blank');
