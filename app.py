@@ -164,9 +164,10 @@ def generate_pauses():
             .no-print {{ display: none !important; }}
         }}
         .btn-container {{ text-align: center; margin-top: 15px; display: flex; justify-content: center; gap: 15px; }}
-        .btn-print, .btn-download {{ padding: 10px 20px; text-decoration: none; border-radius: 30px; font-weight: 600; display: inline-block; cursor: pointer; border: none; font-size: 12px; transition: all 0.2s; color: white; }}
+        .btn-print, .btn-download, .btn-save-online {{ padding: 10px 20px; text-decoration: none; border-radius: 30px; font-weight: 600; display: inline-block; cursor: pointer; border: none; font-size: 12px; transition: all 0.2s; color: white; }}
         .btn-print {{ background: #2CC985; box-shadow: 0 4px 10px rgba(44, 201, 133, 0.2); }}
         .btn-download {{ background: #3b82f6; box-shadow: 0 4px 10px rgba(59, 130, 246, 0.2); }}
+        .btn-save-online {{ background: #f59e0b; box-shadow: 0 4px 10px rgba(245, 158, 11, 0.2); }}
     </style></head><body>
     """
     
@@ -195,6 +196,7 @@ def generate_pauses():
     html += "<div class='no-print btn-container'>"
     html += "<button class='btn-print' onclick='window.print()'>🖨️ IMPRIMER</button>"
     html += f"<button class='btn-download' onclick='downloadHTML()'>💾 SAUVEGARDER SUR MON PC</button>"
+    html += f"<button class='btn-save-online' onclick='saveToServer()'>☁️ ENREGISTRER EN LIGNE</button>"
     html += "</div>"
     html += """<script>
         function downloadHTML() {
@@ -208,6 +210,35 @@ def generate_pauses():
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
+        }
+        
+        function saveToServer() {
+            const btn = document.querySelector('.btn-save-online');
+            const originalText = btn.innerText;
+            btn.innerText = "⏳ Enregistrement...";
+            
+            const htmlContent = document.documentElement.outerHTML;
+            let filename = window.location.pathname.split('/').pop();
+            if(!filename || filename === 'generate_pauses' || filename === '') {
+                filename = '""" + f"Feuille_Pauses_{date_saisie.replace('/','-')}.html" + """';
+            }
+            
+            fetch('/api/save_html', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({filename: filename, content: htmlContent})
+            }).then(res => res.json()).then(data => {
+                if(data.success) {
+                    btn.innerText = "✅ ENREGISTRÉ !";
+                    setTimeout(() => btn.innerText = originalText, 3000);
+                } else {
+                    alert("Erreur lors de l'enregistrement");
+                    btn.innerText = originalText;
+                }
+            }).catch(err => {
+                alert("Erreur réseau");
+                btn.innerText = originalText;
+            });
         }
     </script></body></html>"""
     
@@ -299,9 +330,10 @@ def generate_planning():
             .sub-block {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
         }}
         .btn-container {{ text-align: center; margin-top: 25px; display: flex; justify-content: center; gap: 15px; }}
-        .btn-print, .btn-download {{ padding: 12px 28px; text-decoration: none; border-radius: 30px; font-weight: 600; display: inline-block; cursor: pointer; border: none; font-size: 14px; transition: all 0.2s; color: white; }}
+        .btn-print, .btn-download, .btn-save-online {{ padding: 12px 28px; text-decoration: none; border-radius: 30px; font-weight: 600; display: inline-block; cursor: pointer; border: none; font-size: 14px; transition: all 0.2s; color: white; }}
         .btn-print {{ background: #2CC985; box-shadow: 0 4px 10px rgba(44, 201, 133, 0.2); }}
         .btn-download {{ background: #3b82f6; box-shadow: 0 4px 10px rgba(59, 130, 246, 0.2); }}
+        .btn-save-online {{ background: #f59e0b; box-shadow: 0 4px 10px rgba(245, 158, 11, 0.2); }}
     </style>
     </head><body>
     
@@ -369,6 +401,7 @@ def generate_planning():
     <div class='no-print btn-container'>
         <button class='btn-print' onclick='window.print()'>🖨️ IMPRIMER LE PLANNING PRO</button>
         <button class='btn-download' onclick='downloadHTML()'>💾 SAUVEGARDER SUR MON PC</button>
+        <button class='btn-save-online' onclick='saveToServer()'>☁️ ENREGISTRER EN LIGNE</button>
     </div>
     
     <script>
@@ -383,6 +416,35 @@ def generate_planning():
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
+        }
+        
+        function saveToServer() {
+            const btn = document.querySelector('.btn-save-online');
+            const originalText = btn.innerText;
+            btn.innerText = "⏳ Enregistrement...";
+            
+            const htmlContent = document.documentElement.outerHTML;
+            let filename = window.location.pathname.split('/').pop();
+            if(!filename || filename === 'generate_planning' || filename === '') {
+                filename = 'Planning_A4_""" + f"{date_saisie.replace('/','-')}.html" + """';
+            }
+            
+            fetch('/api/save_html', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({filename: filename, content: htmlContent})
+            }).then(res => res.json()).then(data => {
+                if(data.success) {
+                    btn.innerText = "✅ ENREGISTRÉ !";
+                    setTimeout(() => btn.innerText = originalText, 3000);
+                } else {
+                    alert("Erreur lors de l'enregistrement");
+                    btn.innerText = originalText;
+                }
+            }).catch(err => {
+                alert("Erreur réseau");
+                btn.innerText = originalText;
+            });
         }
 
         document.querySelectorAll('.sub-block').forEach(b => {
@@ -409,6 +471,25 @@ def generate_planning():
         f.write(html)
         
     return jsonify({'success': True, 'url': f'/files/plannings/{nom_fichier}'})
+
+# === SAVE HTML ===
+@app.route('/api/save_html', methods=['POST'])
+def save_html():
+    data = request.json
+    filename = data.get('filename')
+    content = data.get('content')
+    if not filename or not content:
+        return jsonify({'success': False, 'message': 'Données manquantes'}), 400
+    
+    if 'Pauses' in filename or 'pauses' in filename or 'PAUSES' in filename:
+        filepath = os.path.join(PAUSES_DIR, filename)
+    else:
+        filepath = os.path.join(PLANNINGS_DIR, filename)
+        
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(content)
+        
+    return jsonify({'success': True})
 
 # === UPLOAD FICHIERS ===
 @app.route('/api/upload', methods=['POST'])
