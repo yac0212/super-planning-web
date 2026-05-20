@@ -56,10 +56,54 @@ os.makedirs(PAUSES_DIR, exist_ok=True)
 @app.route('/files/<type_dir>/<filename>')
 def serve_files(type_dir, filename):
     if type_dir == "plannings":
-        return send_from_directory(PLANNINGS_DIR, filename)
+        filepath = os.path.join(PLANNINGS_DIR, filename)
     elif type_dir == "pauses":
-        return send_from_directory(PAUSES_DIR, filename)
-    return "Not found", 404
+        filepath = os.path.join(PAUSES_DIR, filename)
+    else:
+        return "Not found", 404
+        
+    if not os.path.exists(filepath):
+        return "Not found", 404
+        
+    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+        content = f.read()
+        
+    if "btn-save-online" not in content:
+        import re
+        injection = """
+        <style>
+        .btn-save-online { padding: 10px 20px; text-decoration: none; border-radius: 30px; font-weight: 600; display: inline-block; cursor: pointer; border: none; font-size: 12px; transition: all 0.2s; color: white; background: #f59e0b; box-shadow: 0 4px 10px rgba(245, 158, 11, 0.2); margin-left: 10px; }
+        </style>
+        <script>
+        function saveToServer() {
+            const btn = document.querySelector('.btn-save-online');
+            const originalText = btn.innerText;
+            btn.innerText = "⏳ Enregistrement...";
+            const htmlContent = document.documentElement.outerHTML;
+            let filename = window.location.pathname.split('/').pop();
+            fetch('/api/save_html', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({filename: filename, content: htmlContent})
+            }).then(res => res.json()).then(data => {
+                if(data.success) {
+                    btn.innerText = "✅ ENREGISTRÉ !";
+                    setTimeout(() => btn.innerText = originalText, 3000);
+                } else {
+                    alert("Erreur lors de l'enregistrement");
+                    btn.innerText = originalText;
+                }
+            }).catch(err => {
+                alert("Erreur réseau");
+                btn.innerText = originalText;
+            });
+        }
+        </script>
+        """
+        content = re.sub(r"(<button class=['\"]btn-download.*?)(</div>)", r"\1\n<button class='btn-save-online' onclick='saveToServer()'>☁️ ENREGISTRER EN LIGNE</button>\n\2", content)
+        content = content.replace("</body>", injection + "</body>")
+        
+    return Response(content, mimetype='text/html')
 
 @app.route('/')
 def index():
