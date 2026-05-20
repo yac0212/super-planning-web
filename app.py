@@ -73,8 +73,22 @@ def serve_files(type_dir, filename):
         injection = """
         <style>
         .btn-save-online { padding: 10px 20px; text-decoration: none; border-radius: 30px; font-weight: 600; display: inline-block; cursor: pointer; border: none; font-size: 12px; transition: all 0.2s; color: white; background: #f59e0b; box-shadow: 0 4px 10px rgba(245, 158, 11, 0.2); margin-left: 10px; }
+        .btn-download { padding: 10px 20px; text-decoration: none; border-radius: 30px; font-weight: 600; display: inline-block; cursor: pointer; border: none; font-size: 12px; transition: all 0.2s; color: white; background: #3b82f6; box-shadow: 0 4px 10px rgba(59, 130, 246, 0.2); margin-left: 10px; }
         </style>
         <script>
+        function downloadHTML() {
+            const htmlContent = document.documentElement.outerHTML;
+            const blob = new Blob([htmlContent], {type: 'text/html'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = window.location.pathname.split('/').pop() || 'document.html';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
         function saveToServer() {
             const btn = document.querySelector('.btn-save-online');
             const originalText = btn.innerText;
@@ -98,9 +112,31 @@ def serve_files(type_dir, filename):
                 btn.innerText = originalText;
             });
         }
+
+        document.querySelectorAll('.sub-block').forEach(b => {
+            b.addEventListener('input', function() {
+                let t = this.innerText.trim().toUpperCase();
+                this.className = 'sub-block'; 
+                if (t === 'C1' || t === 'C2') this.classList.add('bg-C1');
+                else if (t === 'C5' || t === 'C6') this.classList.add('bg-C5');
+                else if (t === 'C13' || t === 'C14') this.classList.add('bg-C13');
+                else if (t === 'CLS') this.classList.add('bg-CLS');
+                else if (t === 'PAUSE' || t === 'MISSION PAUSE' || t === 'P') {
+                    this.classList.add('bg-P');
+                    this.classList.add('bg-PAUSE');
+                }
+                else if (t === 'POLY') this.classList.add('bg-POLY');
+                else if (t === 'ABS' || t === '') this.classList.add('bg-ABS');
+                else if (t.startsWith('C') && t.length > 1) this.classList.add('bg-C_OTHER');
+            });
+        });
         </script>
         """
-        content = re.sub(r"(<button class=['\"]btn-download.*?)(</div>)", r"\1\n<button class='btn-save-online' onclick='saveToServer()'>☁️ ENREGISTRER EN LIGNE</button>\n\2", content)
+        content = re.sub(
+            r"(<button[^>]*window\.print\(\)[^>]*>.*?</button>)",
+            r"\1\n<button class='btn-download' onclick='downloadHTML()'>💾 SAUVEGARDER SUR MON PC</button>\n<button class='btn-save-online' onclick='saveToServer()'>☁️ ENREGISTRER EN LIGNE</button>",
+            content
+        )
         content = content.replace("</body>", injection + "</body>")
         
     return Response(content, mimetype='text/html')
