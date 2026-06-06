@@ -345,11 +345,18 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
                     penalite -= 500000
                 elif last_task is not None and last_task.startswith("C"):
                     penalite += 400000
+                    for pair in [[1,2], [13,14], [5,6], [3,4], [7,8], [9,10], [11,12]]:
+                        names = [f"C{n}" for n in pair]
+                        if last_task in names and nom_caisse in names:
+                            penalite += 999999
                 
                 # Bonus absolu (-100000) pour imposer l'intérim
                 if num_caisse in [1, 2, 13, 14] and infos.get('statut') == "Interimaire": 
                     penalite -= 100000 
                     
+                # Bonus pour Alicia qui aime la C1 (passe après les intérimaires)
+                if "Alicia" in nom_c and num_caisse == 1:
+                    penalite -= 50000
                 if longueur_c < 4:
                     penalite += 200000
                     
@@ -362,7 +369,7 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
                 
             candidats_disponibles.sort(key=score_caisse)
             if score_caisse(candidats_disponibles[0])[0] < 900000: 
-                assigner_tache(candidats_disponibles[0][0], nom_caisse, i, candidats_disponibles[0][1])
+                assigner_tache(candidats_disponibles[0][0], nom_caisse, i, 1)
     
     # --- ETAPE 6 : POLYVALENT ---
     for nom in employes_presents:
