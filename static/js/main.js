@@ -539,25 +539,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // === STATS & ARCHIVES ===
     let penibiliteChart = null;
+    let globalDoughnutChart = null;
 
     document.getElementById('btn-load-stats').addEventListener('click', async () => {
         const dateStr = document.getElementById('planning-date').value;
         const res = await apiCall(`/api/stats/${dateStr.replace(/\//g, '-')}`);
         
         const placeholder = document.getElementById('stats-placeholder');
-        const chartContainer = document.getElementById('chart-container');
+        const dashboard = document.getElementById('stats-dashboard');
         const tableContainer = document.getElementById('stats-table-container');
         
         if (!res || res.fichiers_trouves === 0) {
             placeholder.innerHTML = 'Aucun planning trouvé sur les 7 derniers jours.';
             placeholder.style.display = 'block';
-            chartContainer.style.display = 'none';
-            tableContainer.innerHTML = '';
+            if(dashboard) dashboard.style.display = 'none';
+            if(tableContainer) tableContainer.innerHTML = '';
             return;
         }
         
         placeholder.style.display = 'none';
-        chartContainer.style.display = 'block';
+        if(dashboard) dashboard.style.display = 'block';
         
         // Trier par ordre décroissant de pénibilité (total)
         res.stats.sort((a, b) => (b.c1_raw + b.c2_raw + b.cls_raw) - (a.c1_raw + a.c2_raw + a.cls_raw));
@@ -567,60 +568,65 @@ document.addEventListener('DOMContentLoaded', () => {
         const dataC2 = res.stats.map(s => s.c2_raw);
         const dataCLS = res.stats.map(s => s.cls_raw);
 
-        const ctx = document.getElementById('penibiliteChart').getContext('2d');
+        // --- BAR CHART ---
+        const ctxBar = document.getElementById('penibiliteChart').getContext('2d');
+        if (penibiliteChart) penibiliteChart.destroy();
         
-        if (penibiliteChart) {
-            penibiliteChart.destroy();
-        }
-        
-        penibiliteChart = new Chart(ctx, {
+        penibiliteChart = new Chart(ctxBar, {
             type: 'bar',
             data: {
                 labels: labels,
                 datasets: [
-                    {
-                        label: 'Caisse 1',
-                        data: dataC1,
-                        backgroundColor: '#ef4444', // Rouge
-                    },
-                    {
-                        label: 'Caisse 2',
-                        data: dataC2,
-                        backgroundColor: '#f97316', // Orange
-                    },
-                    {
-                        label: 'Caisses Libre-Service (CLS)',
-                        data: dataCLS,
-                        backgroundColor: '#3b82f6', // Bleu
-                    }
+                    { label: 'Caisse 1', data: dataC1, backgroundColor: '#ef4444' },
+                    { label: 'Caisse 2', data: dataC2, backgroundColor: '#f97316' },
+                    { label: 'Caisses Libre-Service (CLS)', data: dataCLS, backgroundColor: '#3b82f6' }
                 ]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 scales: {
-                    x: {
-                        stacked: true,
-                    },
+                    x: { stacked: true },
                     y: {
                         stacked: true,
                         beginAtZero: true,
-                        title: {
-                            display: true,
-                            text: 'Nombre de Créneaux (15 min)'
-                        }
+                        title: { display: true, text: 'Nombre de Créneaux (15 min)' }
                     }
                 },
                 plugins: {
-                    title: {
-                        display: true,
-                        text: `Bilan de pénibilité basé sur ${res.fichiers_trouves} jours glissants`
-                    }
+                    title: { display: true, text: `Bilan basé sur ${res.fichiers_trouves} jours glissants` }
                 }
             }
         });
 
-        // Tableau détaillé
+        // --- DOUGHNUT CHART ---
+        const totalC1 = dataC1.reduce((a, b) => a + b, 0);
+        const totalC2 = dataC2.reduce((a, b) => a + b, 0);
+        const totalCLS = dataCLS.reduce((a, b) => a + b, 0);
+        
+        const ctxDoughnut = document.getElementById('globalDoughnutChart').getContext('2d');
+        if (globalDoughnutChart) globalDoughnutChart.destroy();
+        
+        globalDoughnutChart = new Chart(ctxDoughnut, {
+            type: 'doughnut',
+            data: {
+                labels: ['Caisse 1', 'Caisse 2', 'CLS'],
+                datasets: [{
+                    data: [totalC1, totalC2, totalCLS],
+                    backgroundColor: ['#ef4444', '#f97316', '#3b82f6'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'bottom' }
+                }
+            }
+        });
+
+        // --- Tableau détaillé ---
         let html = `<table class="stats-table">
             <thead>
                 <tr><th>Employé</th><th>C1</th><th>C2</th><th>CLS</th><th>Total (Heures)</th></tr>
@@ -632,7 +638,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         
         html += `</tbody></table>`;
-        tableContainer.innerHTML = html;
+        if(tableContainer) tableContainer.innerHTML = html;
         
         lucide.createIcons();
     });

@@ -306,7 +306,11 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
             # Préservation pendant la pause
             last_occupant_col = None
             if i > 0:
-                last_occupant_col = next((x for x in range(len(employes_presents)) if matrice_planning[i-1][x] == nom_caisse), None)
+                for j in range(i - 1, -1, -1):
+                    col = next((x for x in range(len(employes_presents)) if matrice_planning[j][x] == nom_caisse), None)
+                    if col is not None:
+                        last_occupant_col = col
+                        break
             
             if last_occupant_col is not None and matrice_planning[i][last_occupant_col] == "PAUSE":
                 continue
@@ -356,7 +360,11 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
             # Préservation pendant la pause
             last_occupant_col = None
             if i > 0:
-                last_occupant_col = next((x for x in range(len(employes_presents)) if matrice_planning[i-1][x] == nom_caisse), None)
+                for j in range(i - 1, -1, -1):
+                    col = next((x for x in range(len(employes_presents)) if matrice_planning[j][x] == nom_caisse), None)
+                    if col is not None:
+                        last_occupant_col = col
+                        break
             
             if last_occupant_col is not None and matrice_planning[i][last_occupant_col] == "PAUSE":
                 continue
@@ -399,7 +407,11 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
             # Préservation pendant la pause
             last_occupant_col = None
             if i > 0:
-                last_occupant_col = next((x for x in range(len(employes_presents)) if matrice_planning[i-1][x] == nom_caisse), None)
+                for j in range(i - 1, -1, -1):
+                    col = next((x for x in range(len(employes_presents)) if matrice_planning[j][x] == nom_caisse), None)
+                    if col is not None:
+                        last_occupant_col = col
+                        break
             
             if last_occupant_col is not None and matrice_planning[i][last_occupant_col] == "PAUSE":
                 continue
