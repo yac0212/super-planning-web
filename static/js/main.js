@@ -537,9 +537,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // === STATS & ARCHIVES ===
+    let planningModalChart = null;
     let penibiliteChart = null;
     let globalDoughnutChart = null;
+    let profilDoughnutChart = null;
+    let profilLineChart = null;
 
     document.getElementById('btn-load-stats').addEventListener('click', async () => {
         const dateStr = document.getElementById('planning-date').value;
@@ -632,16 +634,81 @@ document.addEventListener('DOMContentLoaded', () => {
                 <tr><th>Employé</th><th>C1</th><th>C2</th><th>CLS</th><th>Total (Heures)</th></tr>
             </thead><tbody>`;
             
-        res.stats.forEach(s => {
+        res.stats.forEach((s, idx) => {
             const totalH = ((s.c1_raw + s.c2_raw + s.cls_raw) * 15 / 60).toFixed(2);
-            html += `<tr><td><b>${s.nom}</b></td><td>${s.c1}</td><td>${s.c2}</td><td>${s.cls}</td><td>${totalH} h</td></tr>`;
+            html += `<tr class="clickable-profil-row" data-idx="${idx}" style="cursor: pointer; transition: background 0.2s;">
+                <td><b>${s.nom}</b></td><td>${s.c1}</td><td>${s.c2}</td><td>${s.cls}</td><td>${totalH} h</td>
+            </tr>`;
         });
         
         html += `</tbody></table>`;
         if(tableContainer) tableContainer.innerHTML = html;
         
+        // Add click handlers for the profile modal
+        document.querySelectorAll('.clickable-profil-row').forEach(row => {
+            row.addEventListener('click', () => {
+                const idx = row.getAttribute('data-idx');
+                openProfilModal(res.stats[idx]);
+            });
+        });
+        
         lucide.createIcons();
     });
+
+    // --- MODAL PROFIL PÉNIBILITÉ ---
+    document.getElementById('btn-close-profil')?.addEventListener('click', () => {
+        document.getElementById('modal-profil-stats').style.display = 'none';
+    });
+
+    function openProfilModal(statData) {
+        document.getElementById('modal-profil-title').innerText = `Profil Pénibilité : ${statData.nom}`;
+        document.getElementById('modal-profil-stats').style.display = 'flex';
+        
+        // Doughnut chart (Personal distribution)
+        const ctxDoughnut = document.getElementById('profilDoughnutChart').getContext('2d');
+        if (profilDoughnutChart) profilDoughnutChart.destroy();
+        profilDoughnutChart = new Chart(ctxDoughnut, {
+            type: 'doughnut',
+            data: {
+                labels: ['Caisse 1', 'Caisse 2', 'CLS'],
+                datasets: [{
+                    data: [statData.c1_raw, statData.c2_raw, statData.cls_raw],
+                    backgroundColor: ['#ef4444', '#f97316', '#3b82f6'],
+                    borderWidth: 0
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false }
+        });
+        
+        // Line chart (7 days evolution)
+        const dates = Object.keys(statData.history).sort((a, b) => {
+            const da = a.split('-').reverse().join('');
+            const db = b.split('-').reverse().join('');
+            return da.localeCompare(db);
+        });
+        
+        const dataC1 = dates.map(d => statData.history[d].c1 * 15 / 60);
+        const dataC2 = dates.map(d => statData.history[d].c2 * 15 / 60);
+        const dataCLS = dates.map(d => statData.history[d].cls * 15 / 60);
+        
+        const ctxLine = document.getElementById('profilLineChart').getContext('2d');
+        if (profilLineChart) profilLineChart.destroy();
+        profilLineChart = new Chart(ctxLine, {
+            type: 'line',
+            data: {
+                labels: dates,
+                datasets: [
+                    { label: 'C1 (heures)', data: dataC1, borderColor: '#ef4444', tension: 0.3, fill: false },
+                    { label: 'C2 (heures)', data: dataC2, borderColor: '#f97316', tension: 0.3, fill: false },
+                    { label: 'CLS (heures)', data: dataCLS, borderColor: '#3b82f6', tension: 0.3, fill: false }
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: { y: { beginAtZero: true } }
+            }
+        });
+    }
 
     async function loadArchives() {
         const res = await apiCall('/api/archives');

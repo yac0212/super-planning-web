@@ -292,14 +292,17 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
                 if task == "PAUSE":
                     continue
                 return task
+            else:
+                return None
         return None
 
-    # --- ETAPE 3 : CAISSES 1, 2, 13, 14 (PRIORITÉ INTÉRIM ABSOLUE) ---
-    for num_caisse in [1, 2, 13, 14]:
-        nom_caisse = f"C{num_caisse}"
-        dict_penalite = HIERARCHIE_PENALITE_C1_C2 if num_caisse in [1, 2] else HIERARCHIE_PENALITE_C13_C14
-        
-        for i, ts in enumerate(slots):
+    # --- ETAPE 3 : ASSIGNATION CHRONOLOGIQUE DES CAISSES ---
+    ordre_caisses = [1, 2, 13, 14, 5, 6, 3, 4, 7, 8, 9, 10, 11, 12]
+    
+    for i, ts in enumerate(slots):
+        for num_caisse in ordre_caisses:
+            nom_caisse = f"C{num_caisse}"
+            
             if any(matrice_planning[i][x] == nom_caisse for x in range(len(employes_presents))): 
                 continue
                 
@@ -321,21 +324,32 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
                 if i in indices_libres: 
                     candidats_disponibles.append((nom, get_continuous_block(indices_libres, i)))
                     
-            def score_priorite_caisse(c):
+            if not candidats_disponibles:
+                continue
+
+            def score_caisse(c):
                 nom_c = c[0]
                 longueur_c = c[1]
                 infos = cache_emp.get(nom_c, {'statut': 'CDI', 'restriction_handicap': 'Aucun'})
-                penalite = get_penalite(nom_c, dict_penalite)
                 
-                # Bonus de continuité pour retrouver sa caisse après une pause
-                if get_last_task_for_bonus(nom_c, i) == nom_caisse:
+                # Base penalty
+                if num_caisse in [1, 2]:
+                    penalite = get_penalite(nom_c, HIERARCHIE_PENALITE_C1_C2)
+                elif num_caisse in [13, 14]:
+                    penalite = get_penalite(nom_c, HIERARCHIE_PENALITE_C13_C14)
+                else:
+                    penalite = 0
+                
+                last_task = get_last_task_for_bonus(nom_c, i)
+                if last_task == nom_caisse:
                     penalite -= 500000
+                elif last_task is not None and last_task.startswith("C"):
+                    penalite += 400000
                 
                 # Bonus absolu (-100000) pour imposer l'intérim
-                if infos.get('statut') == "Interimaire": 
+                if num_caisse in [1, 2, 13, 14] and infos.get('statut') == "Interimaire": 
                     penalite -= 100000 
                     
-                # Pénalité anti-fragmentation pour éviter les sauts de caisse de 30 min
                 if longueur_c < 4:
                     penalite += 200000
                     
@@ -346,102 +360,8 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
                     
                 return (penalite, -longueur_c)
                 
-            candidats_disponibles.sort(key=score_priorite_caisse)
-            if candidats_disponibles and score_priorite_caisse(candidats_disponibles[0])[0] < 900000: 
-                assigner_tache(candidats_disponibles[0][0], nom_caisse, i, candidats_disponibles[0][1])
-
-    # --- ETAPE 4 : CAISSES 5 ET 6 (PRIORITÉ SECONDAIRE) ---
-    for num_caisse in [5, 6]:
-        nom_caisse = f"C{num_caisse}"
-        for i, ts in enumerate(slots):
-            if any(matrice_planning[i][x] == nom_caisse for x in range(len(employes_presents))): 
-                continue
-                
-            # Préservation pendant la pause
-            last_occupant_col = None
-            if i > 0:
-                for j in range(i - 1, -1, -1):
-                    col = next((x for x in range(len(employes_presents)) if matrice_planning[j][x] == nom_caisse), None)
-                    if col is not None:
-                        last_occupant_col = col
-                        break
-            
-            if last_occupant_col is not None and matrice_planning[i][last_occupant_col] == "PAUSE":
-                continue
-                
-            candidats_disponibles = []
-            for nom in employes_presents:
-                indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
-                if i in indices_libres: 
-                    candidats_disponibles.append((nom, get_continuous_block(indices_libres, i)))
-                    
-            def score_caisse_5_6(c):
-                nom_c = c[0]
-                longueur_c = c[1]
-                infos = cache_emp.get(nom_c, {'statut': 'CDI', 'restriction_handicap': 'Aucun'})
-                penalite = 0
-                
-                if get_last_task_for_bonus(nom_c, i) == nom_caisse:
-                    penalite -= 500000
-                    
-                if longueur_c < 4:
-                    penalite += 200000
-                
-                est_pair = (num_caisse % 2 == 0)
-                if (infos.get('restriction_handicap') == "Caisse Impaire Uniq." and est_pair) or \
-                   (infos.get('restriction_handicap') == "Caisse Paire Uniq." and not est_pair): 
-                    penalite += 999999
-                return (penalite, -longueur_c)
-                
-            candidats_disponibles.sort(key=score_caisse_5_6)
-            if candidats_disponibles and score_caisse_5_6(candidats_disponibles[0])[0] < 900000: 
-                assigner_tache(candidats_disponibles[0][0], nom_caisse, i, candidats_disponibles[0][1])
-
-    # --- ETAPE 5 : LE RESTE DES CAISSES ---
-    for num_caisse in [3, 4, 7, 8, 9, 10, 11, 12]:
-        nom_caisse = f"C{num_caisse}"
-        for i, ts in enumerate(slots):
-            if any(matrice_planning[i][x] == nom_caisse for x in range(len(employes_presents))): 
-                continue
-                
-            # Préservation pendant la pause
-            last_occupant_col = None
-            if i > 0:
-                for j in range(i - 1, -1, -1):
-                    col = next((x for x in range(len(employes_presents)) if matrice_planning[j][x] == nom_caisse), None)
-                    if col is not None:
-                        last_occupant_col = col
-                        break
-            
-            if last_occupant_col is not None and matrice_planning[i][last_occupant_col] == "PAUSE":
-                continue
-                
-            candidats_disponibles = []
-            for nom in employes_presents:
-                indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
-                if i in indices_libres: 
-                    candidats_disponibles.append((nom, get_continuous_block(indices_libres, i)))
-                    
-            def score_reste(c):
-                nom_c = c[0]
-                longueur_c = c[1]
-                infos = cache_emp.get(nom_c, {'statut': 'CDI', 'restriction_handicap': 'Aucun'})
-                penalite = 0
-                
-                if get_last_task_for_bonus(nom_c, i) == nom_caisse:
-                    penalite -= 500000
-                    
-                if longueur_c < 4:
-                    penalite += 200000
-                    
-                est_pair = (num_caisse % 2 == 0)
-                if (infos.get('restriction_handicap') == "Caisse Impaire Uniq." and est_pair) or \
-                   (infos.get('restriction_handicap') == "Caisse Paire Uniq." and not est_pair): 
-                    penalite += 999999
-                return (penalite, -longueur_c)
-                
-            candidats_disponibles.sort(key=score_reste)
-            if candidats_disponibles and score_reste(candidats_disponibles[0])[0] < 900000: 
+            candidats_disponibles.sort(key=score_caisse)
+            if score_caisse(candidats_disponibles[0])[0] < 900000: 
                 assigner_tache(candidats_disponibles[0][0], nom_caisse, i, candidats_disponibles[0][1])
     
     # --- ETAPE 6 : POLYVALENT ---

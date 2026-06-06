@@ -821,14 +821,22 @@ def get_stats(date_str):
             for nom_html, contenu_ligne in lignes:
                 nom = nom_html.strip().title()
                 if nom not in stats: 
-                    stats[nom] = {'c1': 0, 'c2': 0, 'cls': 0}
+                    stats[nom] = {'c1': 0, 'c2': 0, 'cls': 0, 'history': {}}
+                if d_str not in stats[nom]['history']:
+                    stats[nom]['history'][d_str] = {'c1': 0, 'c2': 0, 'cls': 0}
                     
                 blocs = re.findall(r"<div class=['\"]sub-block([^>]*)>(.*?)</div>", contenu_ligne)
                 for attributs, tache_html in blocs:
                     tache = tache_html.strip().upper()
-                    if tache == 'C1': stats[nom]['c1'] += 1
-                    elif tache == 'C2': stats[nom]['c2'] += 1
-                    elif tache == 'CLS': stats[nom]['cls'] += 1
+                    if tache == 'C1': 
+                        stats[nom]['c1'] += 1
+                        stats[nom]['history'][d_str]['c1'] += 1
+                    elif tache == 'C2': 
+                        stats[nom]['c2'] += 1
+                        stats[nom]['history'][d_str]['c2'] += 1
+                    elif tache == 'CLS': 
+                        stats[nom]['cls'] += 1
+                        stats[nom]['history'][d_str]['cls'] += 1
                     
     def formater_duree(blocs): 
         return f"{blocs * 15 // 60}h{blocs * 15 % 60:02d}" if blocs > 0 else "-"
@@ -843,7 +851,8 @@ def get_stats(date_str):
                 'cls': formater_duree(stats[nom]['cls']),
                 'c1_raw': stats[nom]['c1'],
                 'c2_raw': stats[nom]['c2'],
-                'cls_raw': stats[nom]['cls']
+                'cls_raw': stats[nom]['cls'],
+                'history': stats[nom]['history']
             })
             
     return jsonify({
