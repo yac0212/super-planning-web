@@ -840,7 +840,10 @@ def get_stats(date_str):
                 'nom': nom,
                 'c1': formater_duree(stats[nom]['c1']),
                 'c2': formater_duree(stats[nom]['c2']),
-                'cls': formater_duree(stats[nom]['cls'])
+                'cls': formater_duree(stats[nom]['cls']),
+                'c1_raw': stats[nom]['c1'],
+                'c2_raw': stats[nom]['c2'],
+                'cls_raw': stats[nom]['cls']
             })
             
     return jsonify({

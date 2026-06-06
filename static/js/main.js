@@ -560,12 +560,12 @@ document.addEventListener('DOMContentLoaded', () => {
         chartContainer.style.display = 'block';
         
         // Trier par ordre décroissant de pénibilité (total)
-        res.stats.sort((a, b) => (b.c1 + b.c2 + b.cls) - (a.c1 + a.c2 + a.cls));
+        res.stats.sort((a, b) => (b.c1_raw + b.c2_raw + b.cls_raw) - (a.c1_raw + a.c2_raw + a.cls_raw));
 
         const labels = res.stats.map(s => s.nom);
-        const dataC1 = res.stats.map(s => s.c1);
-        const dataC2 = res.stats.map(s => s.c2);
-        const dataCLS = res.stats.map(s => s.cls);
+        const dataC1 = res.stats.map(s => s.c1_raw);
+        const dataC2 = res.stats.map(s => s.c2_raw);
+        const dataCLS = res.stats.map(s => s.cls_raw);
 
         const ctx = document.getElementById('penibiliteChart').getContext('2d');
         
@@ -627,7 +627,7 @@ document.addEventListener('DOMContentLoaded', () => {
             </thead><tbody>`;
             
         res.stats.forEach(s => {
-            const totalH = ((s.c1 + s.c2 + s.cls) * 15 / 60).toFixed(2);
+            const totalH = ((s.c1_raw + s.c2_raw + s.cls_raw) * 15 / 60).toFixed(2);
             html += `<tr><td><b>${s.nom}</b></td><td>${s.c1}</td><td>${s.c2}</td><td>${s.cls}</td><td>${totalH} h</td></tr>`;
         });
         
