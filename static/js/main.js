@@ -538,28 +538,103 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // === STATS & ARCHIVES ===
+    let penibiliteChart = null;
+
     document.getElementById('btn-load-stats').addEventListener('click', async () => {
         const dateStr = document.getElementById('planning-date').value;
         const res = await apiCall(`/api/stats/${dateStr.replace(/\//g, '-')}`);
         
-        const container = document.getElementById('stats-container');
+        const placeholder = document.getElementById('stats-placeholder');
+        const chartContainer = document.getElementById('chart-container');
+        const tableContainer = document.getElementById('stats-table-container');
+        
         if (!res || res.fichiers_trouves === 0) {
-            container.innerHTML = '<p>Aucun planning trouvé sur les 7 derniers jours.</p>';
+            placeholder.innerHTML = 'Aucun planning trouvé sur les 7 derniers jours.';
+            placeholder.style.display = 'block';
+            chartContainer.style.display = 'none';
+            tableContainer.innerHTML = '';
             return;
         }
         
-        let html = `<p style="margin-bottom: 15px; color: var(--text-muted);">Basé sur ${res.fichiers_trouves} jours glissants.</p>`;
-        html += `<table class="stats-table">
+        placeholder.style.display = 'none';
+        chartContainer.style.display = 'block';
+        
+        // Trier par ordre décroissant de pénibilité (total)
+        res.stats.sort((a, b) => (b.c1 + b.c2 + b.cls) - (a.c1 + a.c2 + a.cls));
+
+        const labels = res.stats.map(s => s.nom);
+        const dataC1 = res.stats.map(s => s.c1);
+        const dataC2 = res.stats.map(s => s.c2);
+        const dataCLS = res.stats.map(s => s.cls);
+
+        const ctx = document.getElementById('penibiliteChart').getContext('2d');
+        
+        if (penibiliteChart) {
+            penibiliteChart.destroy();
+        }
+        
+        penibiliteChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Caisse 1',
+                        data: dataC1,
+                        backgroundColor: '#ef4444', // Rouge
+                    },
+                    {
+                        label: 'Caisse 2',
+                        data: dataC2,
+                        backgroundColor: '#f97316', // Orange
+                    },
+                    {
+                        label: 'Caisses Libre-Service (CLS)',
+                        data: dataCLS,
+                        backgroundColor: '#3b82f6', // Bleu
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        stacked: true,
+                    },
+                    y: {
+                        stacked: true,
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Nombre de Créneaux (15 min)'
+                        }
+                    }
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: `Bilan de pénibilité basé sur ${res.fichiers_trouves} jours glissants`
+                    }
+                }
+            }
+        });
+
+        // Tableau détaillé
+        let html = `<table class="stats-table">
             <thead>
-                <tr><th>Employé</th><th>C1</th><th>C2</th><th>CLS</th></tr>
+                <tr><th>Employé</th><th>C1</th><th>C2</th><th>CLS</th><th>Total (Heures)</th></tr>
             </thead><tbody>`;
             
         res.stats.forEach(s => {
-            html += `<tr><td><b>${s.nom}</b></td><td>${s.c1}</td><td>${s.c2}</td><td>${s.cls}</td></tr>`;
+            const totalH = ((s.c1 + s.c2 + s.cls) * 15 / 60).toFixed(2);
+            html += `<tr><td><b>${s.nom}</b></td><td>${s.c1}</td><td>${s.c2}</td><td>${s.cls}</td><td>${totalH} h</td></tr>`;
         });
         
         html += `</tbody></table>`;
-        container.innerHTML = html;
+        tableContainer.innerHTML = html;
+        
+        lucide.createIcons();
     });
 
     async function loadArchives() {
