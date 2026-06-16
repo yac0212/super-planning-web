@@ -182,31 +182,7 @@
                     </div>
                 </div>
             </section>
-        </div>
-    </div>
 
-    <!-- MODAL PROFIL STATS -->
-    <div id="modal-profil-stats" class="modal">
-        <div class="modal-content glass-card" style="max-width: 800px;">
-            <div class="modal-header">
-                <h2 id="modal-profil-title">Profil Pénibilité : Employé</h2>
-                <button class="btn-close" id="btn-close-profil"><i data-lucide="x"></i></button>
-            </div>
-            <div class="modal-body" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-                <div style="text-align: center;">
-                    <h3 style="font-size: 14px; margin-bottom: 10px;">Répartition Personnelle</h3>
-                    <div style="position: relative; height: 250px;">
-                        <canvas id="profilDoughnutChart"></canvas>
-                    </div>
-                </div>
-                <div style="text-align: center;">
-                    <h3 style="font-size: 14px; margin-bottom: 10px;">Évolution sur 7 Jours</h3>
-                    <div style="position: relative; height: 250px;">
-                        <canvas id="profilLineChart"></canvas>
-                    </div>
-                </div>
-        </div>
-    </div>
             <!-- TAB: ARCHIVES -->
             <section id="tab-archives" class="tab-pane">
                 <div class="page-header">
@@ -232,6 +208,31 @@
     </div>
 
     <!-- Modals -->
+    
+    <!-- MODAL PROFIL STATS -->
+    <div id="modal-profil-stats" class="modal">
+        <div class="modal-content glass-card" style="max-width: 800px;">
+            <div class="modal-header">
+                <h2 id="modal-profil-title">Profil Pénibilité : Employé</h2>
+                <button class="btn-close" id="btn-close-profil"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div style="text-align: center;">
+                    <h3 style="font-size: 14px; margin-bottom: 10px;">Répartition Personnelle</h3>
+                    <div style="position: relative; height: 250px;">
+                        <canvas id="profilDoughnutChart"></canvas>
+                    </div>
+                </div>
+                <div style="text-align: center;">
+                    <h3 style="font-size: 14px; margin-bottom: 10px;">Évolution sur 7 Jours</h3>
+                    <div style="position: relative; height: 250px;">
+                        <canvas id="profilLineChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="modal" id="edit-emp-modal">
         <div class="modal-content glass-card">
             <h2>Modifier l'employé</h2>
