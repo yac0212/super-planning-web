@@ -3,7 +3,7 @@ import sqlite3
 from datetime import datetime
 
 DATA_DIR = os.environ.get('DATA_DIR', '.')
-DB_FILE = os.path.join(DATA_DIR, "supermarche_data.db")
+DB_FILE = os.path.join(DATA_DIR, "supermarche_dev.db")
 
 def get_db_connection():
     conn = sqlite3.connect(DB_FILE)
@@ -13,7 +13,19 @@ def get_db_connection():
 def init_db():
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute('''CREATE TABLE IF NOT EXISTS employes (id INTEGER PRIMARY KEY AUTOINCREMENT, nom TEXT UNIQUE, statut TEXT, restriction_cls BOOLEAN, restriction_handicap TEXT)''')
+    cur.execute('''CREATE TABLE IF NOT EXISTS employes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        nom TEXT UNIQUE, 
+        statut TEXT, 
+        restriction_cls BOOLEAN, 
+        restriction_handicap TEXT,
+        heures_contrat REAL DEFAULT 35.0,
+        type_contrat TEXT DEFAULT 'CDI',
+        forme_caisse BOOLEAN DEFAULT 1,
+        forme_cls BOOLEAN DEFAULT 0,
+        articles_minute REAL DEFAULT 0.0,
+        note_manager REAL DEFAULT 5.0
+    )''')
     cur.execute('''CREATE TABLE IF NOT EXISTS historique_fermeture (date_str TEXT PRIMARY KEY, nom_employe TEXT)''')
     cur.execute('''CREATE TABLE IF NOT EXISTS compteur_missions (nom TEXT PRIMARY KEY, total INTEGER)''')
     cur.execute('''CREATE TABLE IF NOT EXISTS sauvegarde_historique (date_str TEXT, nom TEXT, ms TEXT, me TEXT, aes TEXT, aee TEXT)''')
@@ -30,11 +42,11 @@ def get_employes():
     conn.close()
     return [dict(e) for e in emps]
 
-def add_employe(nom, statut, restriction_cls, restriction_handicap):
+def add_employe(nom, statut, restriction_cls, restriction_handicap, heures_contrat=35.0, type_contrat='CDI', forme_caisse=True, forme_cls=False, articles_minute=0.0, note_manager=5.0):
     conn = get_db_connection()
     try:
-        conn.execute("INSERT INTO employes (nom, statut, restriction_cls, restriction_handicap) VALUES (?,?,?,?)", 
-                     (nom, statut, restriction_cls, restriction_handicap))
+        conn.execute("INSERT INTO employes (nom, statut, restriction_cls, restriction_handicap, heures_contrat, type_contrat, forme_caisse, forme_cls, articles_minute, note_manager) VALUES (?,?,?,?,?,?,?,?,?,?)", 
+                     (nom, statut, restriction_cls, restriction_handicap, heures_contrat, type_contrat, forme_caisse, forme_cls, articles_minute, note_manager))
         conn.commit()
         return True, "Success"
     except sqlite3.IntegrityError:
@@ -48,11 +60,11 @@ def delete_employe(emp_id):
     conn.commit()
     conn.close()
 
-def update_employe(emp_id, nom, statut, restriction_cls, restriction_handicap):
+def update_employe(emp_id, nom, statut, restriction_cls, restriction_handicap, heures_contrat=35.0, type_contrat='CDI', forme_caisse=True, forme_cls=False, articles_minute=0.0, note_manager=5.0):
     conn = get_db_connection()
     try:
-        conn.execute("UPDATE employes SET nom=?, statut=?, restriction_cls=?, restriction_handicap=? WHERE id=?", 
-                     (nom, statut, restriction_cls, restriction_handicap, emp_id))
+        conn.execute("UPDATE employes SET nom=?, statut=?, restriction_cls=?, restriction_handicap=?, heures_contrat=?, type_contrat=?, forme_caisse=?, forme_cls=?, articles_minute=?, note_manager=? WHERE id=?", 
+                     (nom, statut, restriction_cls, restriction_handicap, heures_contrat, type_contrat, forme_caisse, forme_cls, articles_minute, note_manager, emp_id))
         conn.commit()
         return True, "Success"
     except sqlite3.IntegrityError:

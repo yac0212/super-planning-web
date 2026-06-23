@@ -153,7 +153,18 @@ def get_employees():
 @app.route('/api/employees', methods=['POST'])
 def add_employee():
     data = request.json
-    success, msg = db.add_employe(data['nom'], data['statut'], data.get('restriction_cls', False), data.get('restriction_handicap', 'Aucun'))
+    success, msg = db.add_employe(
+        data['nom'], 
+        data['statut'], 
+        data.get('restriction_cls', False), 
+        data.get('restriction_handicap', 'Aucun'),
+        float(data.get('heures_contrat', 35.0)),
+        data.get('type_contrat', data['statut']), # Default to statut if not provided
+        bool(data.get('forme_caisse', True)),
+        bool(data.get('forme_cls', False)),
+        float(data.get('articles_minute', 0.0)),
+        float(data.get('note_manager', 5.0))
+    )
     return jsonify({'success': success, 'message': msg}), 200 if success else 400
 
 @app.route('/api/employees/<int:emp_id>', methods=['DELETE'])
@@ -164,7 +175,19 @@ def delete_employee(emp_id):
 @app.route('/api/employees/<int:emp_id>', methods=['PUT'])
 def update_employee(emp_id):
     data = request.json
-    success, msg = db.update_employe(emp_id, data['nom'], data['statut'], data.get('restriction_cls', False), data.get('restriction_handicap', 'Aucun'))
+    success, msg = db.update_employe(
+        emp_id, 
+        data['nom'], 
+        data['statut'], 
+        data.get('restriction_cls', False), 
+        data.get('restriction_handicap', 'Aucun'),
+        float(data.get('heures_contrat', 35.0)),
+        data.get('type_contrat', data['statut']),
+        bool(data.get('forme_caisse', True)),
+        bool(data.get('forme_cls', False)),
+        float(data.get('articles_minute', 0.0)),
+        float(data.get('note_manager', 5.0))
+    )
     return jsonify({'success': success, 'message': msg}), 200 if success else 400
 
 # === PLANNING SAVES ===

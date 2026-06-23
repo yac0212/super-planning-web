@@ -143,7 +143,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     ${emp.restriction_handicap !== 'Aucun' ? `<span class="emp-badge" style="background: rgba(255, 165, 2, 0.2); color: var(--warning)">${emp.restriction_handicap}</span>` : ''}
                 </div>
                 <div class="emp-actions">
-                    <button class="btn-icon edit" onclick="openEditModal(${emp.id}, '${emp.nom.replace(/'/g, "\\'")}', '${emp.statut}', ${emp.restriction_cls}, '${emp.restriction_handicap}')"><i data-lucide="edit-2"></i></button>
+                    <button class="btn-icon edit" onclick="openEditModal(${emp.id}, '${emp.nom.replace(/'/g, "\\'")}', '${emp.statut}', ${emp.restriction_cls}, '${emp.restriction_handicap}', ${emp.heures_contrat}, '${emp.type_contrat}', ${emp.forme_caisse}, ${emp.forme_cls}, ${emp.articles_minute}, ${emp.note_manager})"><i data-lucide="edit-2"></i></button>
                     <button class="btn-icon delete" onclick="deleteEmployee(${emp.id})"><i data-lucide="x"></i></button>
                 </div>
             `;
@@ -156,9 +156,15 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
         const data = {
             nom: document.getElementById('emp-nom').value,
-            statut: document.getElementById('emp-statut').value,
+            statut: document.getElementById('emp-type-contrat').value,
             restriction_cls: document.getElementById('emp-cls').checked,
-            restriction_handicap: document.getElementById('emp-handicap').value
+            restriction_handicap: document.getElementById('emp-handicap').value,
+            heures_contrat: parseFloat(document.getElementById('emp-heures').value),
+            type_contrat: document.getElementById('emp-type-contrat').value,
+            forme_caisse: document.getElementById('emp-forme-caisse').checked,
+            forme_cls: document.getElementById('emp-forme-cls').checked,
+            articles_minute: parseFloat(document.getElementById('emp-apm').value),
+            note_manager: parseFloat(document.getElementById('emp-note').value)
         };
         const res = await apiCall('/api/employees', 'POST', data);
         if (res) {
@@ -174,12 +180,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    window.openEditModal = (id, nom, statut, cls, handicap) => {
+    window.openEditModal = (id, nom, statut, cls, handicap, heures, type_contrat, forme_caisse, forme_cls, apm, note) => {
         document.getElementById('edit-emp-id').value = id;
         document.getElementById('edit-emp-nom').value = nom;
-        document.getElementById('edit-emp-statut').value = statut;
+        document.getElementById('edit-emp-type-contrat').value = type_contrat || statut;
         document.getElementById('edit-emp-cls').checked = cls;
         document.getElementById('edit-emp-handicap').value = handicap;
+        document.getElementById('edit-emp-heures').value = heures || 35.0;
+        document.getElementById('edit-emp-forme-caisse').checked = forme_caisse !== false;
+        document.getElementById('edit-emp-forme-cls').checked = forme_cls === true;
+        document.getElementById('edit-emp-apm').value = apm || 0.0;
+        document.getElementById('edit-emp-note').value = note || 5.0;
         document.getElementById('edit-emp-modal').classList.add('active');
     };
 
@@ -192,9 +203,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const id = document.getElementById('edit-emp-id').value;
         const data = {
             nom: document.getElementById('edit-emp-nom').value,
-            statut: document.getElementById('edit-emp-statut').value,
+            statut: document.getElementById('edit-emp-type-contrat').value,
             restriction_cls: document.getElementById('edit-emp-cls').checked,
-            restriction_handicap: document.getElementById('edit-emp-handicap').value
+            restriction_handicap: document.getElementById('edit-emp-handicap').value,
+            heures_contrat: parseFloat(document.getElementById('edit-emp-heures').value),
+            type_contrat: document.getElementById('edit-emp-type-contrat').value,
+            forme_caisse: document.getElementById('edit-emp-forme-caisse').checked,
+            forme_cls: document.getElementById('edit-emp-forme-cls').checked,
+            articles_minute: parseFloat(document.getElementById('edit-emp-apm').value),
+            note_manager: parseFloat(document.getElementById('edit-emp-note').value)
         };
         const res = await apiCall(`/api/employees/${id}`, 'PUT', data);
         if (res) {

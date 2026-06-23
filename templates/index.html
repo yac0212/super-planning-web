@@ -82,23 +82,68 @@
 
                 <div class="form-card glass-card">
                     <form id="add-emp-form">
-                        <input type="text" id="emp-nom" placeholder="NOM Prénom" required>
-                        <select id="emp-statut">
-                            <option value="CDI">CDI</option>
-                            <option value="Interimaire">Interimaire</option>
-                            <option value="Etudiant">Etudiant</option>
-                        </select>
-                        <label class="toggle-container">
-                            <input type="checkbox" id="emp-cls">
-                            <span class="toggle-slider"></span>
-                            Interdit CLS
-                        </label>
-                        <select id="emp-handicap">
-                            <option value="Aucun">Aucun</option>
-                            <option value="Caisse Impaire Uniq.">Caisse Impaire Uniq.</option>
-                            <option value="Caisse Paire Uniq.">Caisse Paire Uniq.</option>
-                        </select>
-                        <button type="submit" class="btn btn-primary"><i data-lucide="plus"></i> Ajouter</button>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                            <div>
+                                <label style="font-size: 12px; color: var(--text-muted);">Nom de l'employé</label>
+                                <input type="text" id="emp-nom" required style="width: 100%;">
+                            </div>
+                            <div>
+                                <label style="font-size: 12px; color: var(--text-muted);">Type de Contrat</label>
+                                <select id="emp-type-contrat" style="width: 100%;">
+                                    <option value="CDI">CDI</option>
+                                    <option value="Interimaire">Interimaire</option>
+                                    <option value="Etudiant">Etudiant</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                            <div>
+                                <label style="font-size: 12px; color: var(--text-muted);">Heures Contrat (hebdo)</label>
+                                <input type="number" id="emp-heures" step="0.5" value="35.0" style="width: 100%;">
+                            </div>
+                            <div>
+                                <label style="font-size: 12px; color: var(--text-muted);">Restriction Handicap</label>
+                                <select id="emp-handicap" style="width: 100%;">
+                                    <option value="Aucun">Aucun</option>
+                                    <option value="Caisse Impaire Uniq.">Caisse Impaire Uniq.</option>
+                                    <option value="Caisse Paire Uniq.">Caisse Paire Uniq.</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                            <div>
+                                <label style="font-size: 12px; color: var(--text-muted);">Performance (Art/min)</label>
+                                <input type="number" id="emp-apm" step="0.1" value="0.0" style="width: 100%;">
+                            </div>
+                            <div>
+                                <label style="font-size: 12px; color: var(--text-muted);">Note Manager (/10)</label>
+                                <input type="number" id="emp-note" step="0.1" min="0" max="10" value="5.0" style="width: 100%;">
+                            </div>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                            <label class="toggle-container" style="justify-content: flex-start; gap: 10px;">
+                                <input type="checkbox" id="emp-forme-caisse" checked>
+                                <span class="toggle-slider"></span>
+                                <span style="font-size: 13px;">Compétence Caisse</span>
+                            </label>
+                            <label class="toggle-container" style="justify-content: flex-start; gap: 10px;">
+                                <input type="checkbox" id="emp-forme-cls">
+                                <span class="toggle-slider"></span>
+                                <span style="font-size: 13px;">Compétence CLS</span>
+                            </label>
+                        </div>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px; align-items: center;">
+                            <label class="toggle-container" style="justify-content: flex-start; gap: 10px;">
+                                <input type="checkbox" id="emp-cls">
+                                <span class="toggle-slider" style="background-color: var(--danger);"></span>
+                                <span style="font-size: 13px; color: var(--danger);">Interdit CLS (Forçage Manuel)</span>
+                            </label>
+                            <button type="submit" class="btn btn-primary" style="justify-self: end;"><i data-lucide="plus"></i> Ajouter</button>
+                        </div>
                     </form>
                 </div>
 
@@ -238,22 +283,69 @@
             <h2>Modifier l'employé</h2>
             <form id="edit-emp-form">
                 <input type="hidden" id="edit-emp-id">
-                <input type="text" id="edit-emp-nom" required>
-                <select id="edit-emp-statut">
-                    <option value="CDI">CDI</option>
-                    <option value="Interimaire">Interimaire</option>
-                    <option value="Etudiant">Etudiant</option>
-                </select>
-                <label class="toggle-container">
-                    <input type="checkbox" id="edit-emp-cls">
-                    <span class="toggle-slider"></span>
-                    Interdit CLS
-                </label>
-                <select id="edit-emp-handicap">
-                    <option value="Aucun">Aucun</option>
-                    <option value="Caisse Impaire Uniq.">Caisse Impaire Uniq.</option>
-                    <option value="Caisse Paire Uniq.">Caisse Paire Uniq.</option>
-                </select>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                    <div>
+                        <label style="font-size: 12px; color: var(--text-muted);">Nom de l'employé</label>
+                        <input type="text" id="edit-emp-nom" required style="width: 100%;">
+                    </div>
+                    <div>
+                        <label style="font-size: 12px; color: var(--text-muted);">Type de Contrat</label>
+                        <select id="edit-emp-type-contrat" style="width: 100%;">
+                            <option value="CDI">CDI</option>
+                            <option value="Interimaire">Interimaire</option>
+                            <option value="Etudiant">Etudiant</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                    <div>
+                        <label style="font-size: 12px; color: var(--text-muted);">Heures Contrat (hebdo)</label>
+                        <input type="number" id="edit-emp-heures" step="0.5" value="35.0" style="width: 100%;">
+                    </div>
+                    <div>
+                        <label style="font-size: 12px; color: var(--text-muted);">Restriction Handicap</label>
+                        <select id="edit-emp-handicap" style="width: 100%;">
+                            <option value="Aucun">Aucun</option>
+                            <option value="Caisse Impaire Uniq.">Caisse Impaire Uniq.</option>
+                            <option value="Caisse Paire Uniq.">Caisse Paire Uniq.</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+                    <div>
+                        <label style="font-size: 12px; color: var(--text-muted);">Performance (Art/min)</label>
+                        <input type="number" id="edit-emp-apm" step="0.1" value="0.0" style="width: 100%;">
+                    </div>
+                    <div>
+                        <label style="font-size: 12px; color: var(--text-muted);">Note Manager (/10)</label>
+                        <input type="number" id="edit-emp-note" step="0.1" min="0" max="10" value="5.0" style="width: 100%;">
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+                    <label class="toggle-container" style="justify-content: flex-start; gap: 10px;">
+                        <input type="checkbox" id="edit-emp-forme-caisse" checked>
+                        <span class="toggle-slider"></span>
+                        <span style="font-size: 13px;">Compétence Caisse</span>
+                    </label>
+                    <label class="toggle-container" style="justify-content: flex-start; gap: 10px;">
+                        <input type="checkbox" id="edit-emp-forme-cls">
+                        <span class="toggle-slider"></span>
+                        <span style="font-size: 13px;">Compétence CLS</span>
+                    </label>
+                </div>
+                
+                <div style="margin-bottom: 20px;">
+                    <label class="toggle-container" style="justify-content: flex-start; gap: 10px;">
+                        <input type="checkbox" id="edit-emp-cls">
+                        <span class="toggle-slider" style="background-color: var(--danger);"></span>
+                        <span style="font-size: 13px; color: var(--danger);">Interdit CLS (Forçage Manuel)</span>
+                    </label>
+                </div>
+
                 <div class="modal-actions">
                     <button type="button" class="btn btn-secondary" onclick="closeModal('edit-emp-modal')">Annuler</button>
                     <button type="submit" class="btn btn-primary">Enregistrer</button>
