@@ -163,7 +163,8 @@ def add_employee():
         bool(data.get('forme_caisse', True)),
         bool(data.get('forme_cls', False)),
         float(data.get('articles_minute', 0.0)),
-        float(data.get('note_manager', 5.0))
+        float(data.get('note_manager', 5.0)),
+        data.get('repos_fixes', '')
     )
     return jsonify({'success': success, 'message': msg}), 200 if success else 400
 
@@ -186,7 +187,8 @@ def update_employee(emp_id):
         bool(data.get('forme_caisse', True)),
         bool(data.get('forme_cls', False)),
         float(data.get('articles_minute', 0.0)),
-        float(data.get('note_manager', 5.0))
+        float(data.get('note_manager', 5.0)),
+        data.get('repos_fixes', '')
     )
     return jsonify({'success': success, 'message': msg}), 200 if success else 400
 

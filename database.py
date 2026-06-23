@@ -24,7 +24,8 @@ def init_db():
         forme_caisse BOOLEAN DEFAULT 1,
         forme_cls BOOLEAN DEFAULT 0,
         articles_minute REAL DEFAULT 0.0,
-        note_manager REAL DEFAULT 5.0
+        note_manager REAL DEFAULT 5.0,
+        repos_fixes TEXT DEFAULT ''
     )''')
     cur.execute('''CREATE TABLE IF NOT EXISTS historique_fermeture (date_str TEXT PRIMARY KEY, nom_employe TEXT)''')
     cur.execute('''CREATE TABLE IF NOT EXISTS compteur_missions (nom TEXT PRIMARY KEY, total INTEGER)''')
@@ -42,11 +43,11 @@ def get_employes():
     conn.close()
     return [dict(e) for e in emps]
 
-def add_employe(nom, statut, restriction_cls, restriction_handicap, heures_contrat=35.0, type_contrat='CDI', forme_caisse=True, forme_cls=False, articles_minute=0.0, note_manager=5.0):
+def add_employe(nom, statut, restriction_cls, restriction_handicap, heures_contrat=35.0, type_contrat='CDI', forme_caisse=True, forme_cls=False, articles_minute=0.0, note_manager=5.0, repos_fixes=''):
     conn = get_db_connection()
     try:
-        conn.execute("INSERT INTO employes (nom, statut, restriction_cls, restriction_handicap, heures_contrat, type_contrat, forme_caisse, forme_cls, articles_minute, note_manager) VALUES (?,?,?,?,?,?,?,?,?,?)", 
-                     (nom, statut, restriction_cls, restriction_handicap, heures_contrat, type_contrat, forme_caisse, forme_cls, articles_minute, note_manager))
+        conn.execute("INSERT INTO employes (nom, statut, restriction_cls, restriction_handicap, heures_contrat, type_contrat, forme_caisse, forme_cls, articles_minute, note_manager, repos_fixes) VALUES (?,?,?,?,?,?,?,?,?,?,?)", 
+                     (nom, statut, restriction_cls, restriction_handicap, heures_contrat, type_contrat, forme_caisse, forme_cls, articles_minute, note_manager, repos_fixes))
         conn.commit()
         return True, "Success"
     except sqlite3.IntegrityError:
@@ -60,11 +61,11 @@ def delete_employe(emp_id):
     conn.commit()
     conn.close()
 
-def update_employe(emp_id, nom, statut, restriction_cls, restriction_handicap, heures_contrat=35.0, type_contrat='CDI', forme_caisse=True, forme_cls=False, articles_minute=0.0, note_manager=5.0):
+def update_employe(emp_id, nom, statut, restriction_cls, restriction_handicap, heures_contrat=35.0, type_contrat='CDI', forme_caisse=True, forme_cls=False, articles_minute=0.0, note_manager=5.0, repos_fixes=''):
     conn = get_db_connection()
     try:
-        conn.execute("UPDATE employes SET nom=?, statut=?, restriction_cls=?, restriction_handicap=?, heures_contrat=?, type_contrat=?, forme_caisse=?, forme_cls=?, articles_minute=?, note_manager=? WHERE id=?", 
-                     (nom, statut, restriction_cls, restriction_handicap, heures_contrat, type_contrat, forme_caisse, forme_cls, articles_minute, note_manager, emp_id))
+        conn.execute("UPDATE employes SET nom=?, statut=?, restriction_cls=?, restriction_handicap=?, heures_contrat=?, type_contrat=?, forme_caisse=?, forme_cls=?, articles_minute=?, note_manager=?, repos_fixes=? WHERE id=?", 
+                     (nom, statut, restriction_cls, restriction_handicap, heures_contrat, type_contrat, forme_caisse, forme_cls, articles_minute, note_manager, repos_fixes, emp_id))
         conn.commit()
         return True, "Success"
     except sqlite3.IntegrityError:

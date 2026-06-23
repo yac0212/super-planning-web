@@ -396,3 +396,18 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
         "closer_veille": closer_veille,
         "emp_map": map_employes
     }
+# --- PHASE 2 : SOLVEUR WFM (OR-Tools) --- 
+def generer_horaires_mensuels(employes, jours_du_mois):
+    # Implémentation future du solveur OR-Tools
+    # model = cp_model.CpModel()
+    # work_vars = ...
+
+    # Contrainte stricte : Jours de repos fixes
+    # for employe in employes:
+    #     repos = employe.get('repos_fixes', '').split(',')
+    #     for jour_idx, jour_nom in jours_du_mois:
+    #         if jour_nom in repos:
+    #             # Le solveur doit forcer toutes ses variables de travail de la journée à 0
+    #             # for t in tranches:
+    #             #     model.Add(work_vars[(employe['id'], jour_idx, t)] == 0)
+    pass
