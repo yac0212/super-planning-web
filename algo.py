@@ -3,9 +3,26 @@ from datetime import datetime, timedelta
 import os
 import database as db
 
-TIME_STEP = 15  
-MARGE_MISSION_PAUSE_MIN = 30 
+TIME_STEP = 15
+MARGE_MISSION_PAUSE_MIN = 30
 BLACKLIST_CLS_PERMANENT = ["jean marc", "jessica", "emmanuel"]
+
+# --- STABILITE DES AFFECTATIONS CAISSE ---
+# Ordre d'ouverture des caisses. Seules CAISSES_CRITIQUES declenchent un
+# reequilibrage quand elles se vident ; les autres sont interchangeables.
+ORDRE_CAISSES = [1, 2, 13, 14, 5, 6, 3, 4, 7, 8, 9, 10, 11, 12]
+CAISSES_CRITIQUES = {1, 2, 13, 14}
+# C1 et C2 doivent rester ouvertes sans la moindre interruption : des qu'elles se
+# vident, on les recomble au creneau suivant, quitte a fermer une caisse du fond.
+CAISSES_ININTERROMPUES = {1, 2}
+# Sur les autres caisses (C13 et C14 comprises) on accepte un trou plutot que de
+# creer de l'instabilite. Au-dela, on comble meme si le remplacant vient de
+# s'installer ailleurs.
+TROU_TOLERE = 6  # 1h30
+# Duree minimale d'un poste avant qu'un deplacement soit autorise (en creneaux de 15 min).
+DUREE_MIN_CAISSE = 6  # 1h30
+# Caisses adjacentes : un employe ne doit pas glisser de l'une a l'autre.
+PAIRES_ADJACENTES = [[1, 2], [13, 14], [5, 6], [3, 4], [7, 8], [9, 10], [11, 12]]
 
 HIERARCHIE_PENALITE_C1_C2 = {
     "léandre": 1000, 
@@ -34,17 +51,53 @@ def calc_duration(start_str, end_str):
     except ValueError: 
         return 0, None
 
-def is_same_person(nom1, nom2): 
-    return nom1.lower() in nom2.lower() or nom2.lower() in nom1.lower()
-    
-def is_blacklisted(nom): 
-    return any(b in nom.lower() for b in BLACKLIST_CLS_PERMANENT)
+def _tokens(nom):
+    """Decoupe un nom en mots normalises. Evite les faux positifs de la
+    recherche par sous-chaine ('emmanuel' matchait 'CADEAU Emmanuelle')."""
+    return set(m for m in (nom or "").lower().replace("-", " ").split() if m)
+
+def _cle_matche(cle, nom):
+    """Vrai si tous les mots de la cle sont des mots entiers du nom."""
+    return _tokens(cle).issubset(_tokens(nom)) if cle else False
+
+def is_same_person(nom1, nom2):
+    if not nom1 or not nom2:
+        return False
+    t1, t2 = _tokens(nom1), _tokens(nom2)
+    if t1 == t2:
+        return True
+    # Inclusion acceptee seulement si le nom le plus court a au moins 2 mots,
+    # sinon un simple prenom identifierait plusieurs personnes.
+    court, long_ = (t1, t2) if len(t1) <= len(t2) else (t2, t1)
+    return len(court) >= 2 and court.issubset(long_)
+
+def is_blacklisted(nom):
+    return any(_cle_matche(b, nom) for b in BLACKLIST_CLS_PERMANENT)
 
 def get_penalite(nom, dictionnaire_hierarchie):
-    for nom_cle, valeur in dictionnaire_hierarchie.items(): 
-        if nom_cle in nom.lower(): 
+    for nom_cle, valeur in dictionnaire_hierarchie.items():
+        if _cle_matche(nom_cle, nom):
             return valeur
     return 0
+
+def caisse_autorisee(num_caisse, infos):
+    """Filtre dur : une restriction handicap ne doit jamais etre contournable
+    par un bonus de score (bug du seuil 900000)."""
+    restriction = infos.get('restriction_handicap', 'Aucun')
+    if restriction == "Aucun" or not restriction:
+        return True
+    est_pair = (num_caisse % 2 == 0)
+    if restriction == "Caisse Impaire Uniq.":
+        return not est_pair
+    if restriction == "Caisse Paire Uniq.":
+        return est_pair
+    return True
+
+def sont_adjacentes(num_a, num_b):
+    # une caisse n'est pas mitoyenne d'elle-meme : y revenir doit rester possible
+    if num_a == num_b:
+        return False
+    return any(num_a in p and num_b in p for p in PAIRES_ADJACENTES)
 
 def generate_timeline():
     start_time = datetime.strptime("09:00", "%H:%M")
@@ -56,21 +109,28 @@ def generate_timeline():
         current_time += timedelta(minutes=TIME_STEP)
     return timeline
 
-def get_available_slots_indices(nom, plan_data, slots, matrice, map_employes):
-    indices_libres = []
-    for i, heure_str in enumerate(slots):
-        heure_obj = datetime.strptime(heure_str, "%H:%M")
-        present = False
-        for p in plan_data:
-            if p['nom'] == nom:
-                matin_ok = p['matin'][0] and p['matin'][1] and p['matin'][0] <= heure_obj < p['matin'][1]
-                aprem_ok = p['aprem'][0] and p['aprem'][1] and p['aprem'][0] <= heure_obj < p['aprem'][1]
-                if matin_ok or aprem_ok:
-                    present = True
-        
-        if present and not matrice[i][map_employes[nom]]: 
-            indices_libres.append(i)
-    return indices_libres
+def build_presence(plan_data, slots, employes_presents):
+    """presence[nom][i] = l'employe est sur site au creneau i.
+
+    Calcule une seule fois pour la journee. L'ancienne version recalculait la
+    presence a chaque appel, depuis la boucle la plus interne de l'etape 3."""
+    heures = [datetime.strptime(s, "%H:%M") for s in slots]
+    presence = {nom: [False] * len(slots) for nom in employes_presents}
+    for p in plan_data:
+        colonne = presence.get(p['nom'])
+        if colonne is None:
+            continue
+        for i, heure_obj in enumerate(heures):
+            matin_ok = p['matin'][0] and p['matin'][1] and p['matin'][0] <= heure_obj < p['matin'][1]
+            aprem_ok = p['aprem'][0] and p['aprem'][1] and p['aprem'][0] <= heure_obj < p['aprem'][1]
+            if matin_ok or aprem_ok:
+                colonne[i] = True
+    return presence
+
+def get_available_slots_indices(nom, presence, matrice, map_employes):
+    colonne = map_employes[nom]
+    dispo = presence[nom]
+    return [i for i in range(len(matrice)) if dispo[i] and not matrice[i][colonne]]
 
 def get_continuous_block(indices_libres, start_idx):
     compteur = 0
@@ -117,7 +177,8 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
     slots = generate_timeline()
     matrice_planning = [["" for _ in employes_presents] for _ in slots]
     map_employes = {nom: index for index, nom in enumerate(employes_presents)}
-    
+    presence = build_presence(plan_data, slots, employes_presents)
+
     def assigner_tache(nom, tache, start_idx, length):
         colonne = map_employes[nom]
         for k in range(start_idx, start_idx + length): 
@@ -141,13 +202,15 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
                 if infos.get('restriction_cls') or is_blacklisted(nom) or compteur_cls[nom] >= 1: 
                     continue
                 
-                indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
+                indices_libres = get_available_slots_indices(nom, presence, matrice_planning, map_employes)
                 if index_depart in indices_libres:
                     longueur_dispo = get_continuous_block(indices_libres, index_depart)
                     candidats_cls.append((nom, longueur_dispo))
                     
-            # On évite Yacine si possible, sinon on prend la plus grande disponibilité
-            candidats_cls.sort(key=lambda x: (1 if "yacine" in x[0].lower() else 0, -x[1]))
+            # On évite Yacine si possible, sinon on prend la plus grande disponibilité.
+            # x[0] en dernier critère : départage déterministe, indépendant de
+            # l'ordre de saisie des employés.
+            candidats_cls.sort(key=lambda x: (1 if _cle_matche("yacine", x[0]) else 0, -x[1], x[0]))
             
             if candidats_cls: 
                 elu = candidats_cls[0][0]
@@ -165,22 +228,22 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
                 if infos['restriction_cls'] or infos['statut'] == "Interimaire" or is_blacklisted(nom) or is_same_person(nom, closer_veille): 
                     continue
                     
-                indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
+                indices_libres = get_available_slots_indices(nom, presence, matrice_planning, map_employes)
                 if start_soir_idx in indices_libres:
                     longueur = get_continuous_block(indices_libres, start_soir_idx)
                     if longueur >= 8: 
                         candidats_disponibles.append((nom, longueur))
                         
-            candidats_disponibles.sort(key=lambda x: (1 if "yacine" in x[0].lower() else 0, -x[1]))
-            
+            candidats_disponibles.sort(key=lambda x: (1 if _cle_matche("yacine", x[0]) else 0, -x[1], x[0]))
+
             if not candidats_disponibles:
                 for nom in employes_presents:
                     infos = cache_emp.get(nom, {'statut': 'CDI', 'restriction_cls': False, 'restriction_handicap': 'Aucun'})
                     if not infos['restriction_cls']:
-                        indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
+                        indices_libres = get_available_slots_indices(nom, presence, matrice_planning, map_employes)
                         if start_soir_idx in indices_libres: 
                             candidats_disponibles.append((nom, get_continuous_block(indices_libres, start_soir_idx)))
-                candidats_disponibles.sort(key=lambda x: -x[1])
+                candidats_disponibles.sort(key=lambda x: (-x[1], x[0]))
                 
             if candidats_disponibles:
                 gagnant, longueur_bloc = candidats_disponibles[0]
@@ -200,11 +263,13 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
                     infos = cache_emp.get(nom, {'statut': 'CDI', 'restriction_cls': False, 'restriction_handicap': 'Aucun'})
                     if nom == closer_assigne or infos['restriction_cls'] or is_blacklisted(nom) or compteur_cls[nom] >= 1: 
                         continue
-                    indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
+                    indices_libres = get_available_slots_indices(nom, presence, matrice_planning, map_employes)
                     if i in indices_libres: 
                         candidats_disponibles.append((nom, get_continuous_block(indices_libres, i)))
                         
-                candidats_disponibles.sort(key=lambda x: (1 if x[1] < 8 else 0, 5000 if "yacine" in x[0].lower() else 0))
+                candidats_disponibles.sort(key=lambda x: (1 if x[1] < 8 else 0,
+                                                          5000 if _cle_matche("yacine", x[0]) else 0,
+                                                          x[0]))
                 if candidats_disponibles: 
                     assigner_tache(candidats_disponibles[0][0], "CLS", i, min(candidats_disponibles[0][1], 8))
                     compteur_cls[candidats_disponibles[0][0]] += 1
@@ -217,9 +282,10 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
         while restant > 0 and cur_idx < 20:
             candidats_disponibles = []
             for nom in employes_presents:
-                if "andré" in nom.lower(): continue 
-                
-                indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
+                if _cle_matche("andré", nom): continue
+
+
+                indices_libres = get_available_slots_indices(nom, presence, matrice_planning, map_employes)
                 if cur_idx in indices_libres: 
                     candidats_disponibles.append({"nom": nom, "longueur": get_continuous_block(indices_libres, cur_idx)})
                     
@@ -233,7 +299,8 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
                 if c['nom'] == closer_assigne: score -= 5000
                 return score + min(c['longueur'], restant) * 10 - db.get_mission_score(c['nom']) * 5
                 
-            candidats_disponibles.sort(key=score_pause, reverse=True)
+            # tri decroissant sur le score, puis nom : departage deterministe
+            candidats_disponibles.sort(key=lambda c: (-score_pause(c), c['nom']))
             gagnant = candidats_disponibles[0]
             
             if gagnant["nom"] == closer_assigne and score_pause(gagnant) < 0: 
@@ -253,9 +320,10 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
         while restant > 0 and cur_idx < 44:
             candidats_disponibles = []
             for nom in employes_presents:
-                if "andré" in nom.lower(): continue 
-                
-                indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
+                if _cle_matche("andré", nom): continue
+
+
+                indices_libres = get_available_slots_indices(nom, presence, matrice_planning, map_employes)
                 if cur_idx in indices_libres: 
                     candidats_disponibles.append({"nom": nom, "longueur": get_continuous_block(indices_libres, cur_idx)})
                     
@@ -269,7 +337,7 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
                 if c['nom'] == closer_assigne: score -= 5000
                 return score + min(c['longueur'], restant) * 10 - db.get_mission_score(c['nom']) * 5
                 
-            candidats_disponibles.sort(key=score_pause_a, reverse=True)
+            candidats_disponibles.sort(key=lambda c: (-score_pause_a(c), c['nom']))
             gagnant = candidats_disponibles[0]
             
             if gagnant["nom"] == closer_assigne and score_pause_a(gagnant) < 0: 
@@ -284,96 +352,218 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
 
 
 
-    def get_last_task_for_bonus(nom_c, current_i):
-        col = map_employes[nom_c]
-        for j in range(current_i - 1, -1, -1):
-            task = matrice_planning[j][col]
-            if task:
-                if task == "PAUSE":
-                    continue
-                return task
-            else:
+    # --- ETAPE 3 : ASSIGNATION CHRONOLOGIQUE DES CAISSES ---
+    # Trois phases par creneau. L'ancienne version remettait les 14 caisses en
+    # concurrence toutes les 15 min : le depart d'une seule personne provoquait
+    # une cascade de 2 a 3 deplacements. Ici la cascade est impossible par
+    # construction.
+    #   A. RECONDUCTION  - le titulaire garde sa caisse, sans mise en concurrence
+    #   B. COMBLEMENT    - seules les caisses libres sont pourvues, et seulement
+    #                      par des employes qui ne sont pas deja assis
+    #   C. REEQUILIBRAGE - au plus UN deplacement par creneau, vers une caisse
+    #                      critique uniquement ; la caisse liberee est fermee
+    def infos_de(nom_c):
+        return cache_emp.get(nom_c, {'statut': 'CDI', 'restriction_cls': False,
+                                     'restriction_handicap': 'Aucun'})
+
+    def derniere_caisse(nom_c, courant_i):
+        """Numero de la derniere caisse tenue juste avant courant_i. Une PAUSE ne
+        rompt pas la continuite ; une absence ou un CLS si."""
+        colonne = map_employes[nom_c]
+        for j in range(courant_i - 1, -1, -1):
+            tache = matrice_planning[j][colonne]
+            if not tache:
                 return None
+            if tache == "PAUSE":
+                continue
+            if tache.startswith("C") and tache != "CLS":
+                return int(tache[1:])
+            return None
         return None
 
-    # --- ETAPE 3 : ASSIGNATION CHRONOLOGIQUE DES CAISSES ---
-    ordre_caisses = [1, 2, 13, 14, 5, 6, 3, 4, 7, 8, 9, 10, 11, 12]
-    
+    def presence_restante(nom_c, depart_i):
+        """Nombre de creneaux consecutifs ou l'employe est encore sur site."""
+        compteur = 0
+        curseur = depart_i
+        while curseur < len(slots) and presence[nom_c][curseur]:
+            compteur += 1
+            curseur += 1
+        return compteur
+
+    def penalite_hierarchie(nom_c, num_caisse):
+        if num_caisse in (1, 2):
+            return get_penalite(nom_c, HIERARCHIE_PENALITE_C1_C2)
+        if num_caisse in (13, 14):
+            return get_penalite(nom_c, HIERARCHIE_PENALITE_C13_C14)
+        return 0
+
+    titulaire = {}     # num_caisse -> nom du titulaire (conserve pendant sa pause)
+    depuis_slot = {}   # nom -> creneau d'installation sur sa caisse actuelle
+    poste_habituel = {}  # nom -> derniere caisse occupee, survit a un CLS / une coupure
+    vide_depuis = {}   # num_caisse critique -> premier creneau ou elle est restee vide
+
     for i, ts in enumerate(slots):
-        for num_caisse in ordre_caisses:
-            nom_caisse = f"C{num_caisse}"
-            
-            if any(matrice_planning[i][x] == nom_caisse for x in range(len(employes_presents))): 
+        # --- Purge : un titulaire parti ou reaffecte ailleurs (CLS) libere sa caisse.
+        #     Un titulaire en pause la conserve : la caisse reste reservee.
+        for num_caisse in list(titulaire):
+            nom = titulaire[num_caisse]
+            tache_courante = matrice_planning[i][map_employes[nom]]
+            if not presence[nom][i]:
+                del titulaire[num_caisse]
+            elif tache_courante and tache_courante != "PAUSE":
+                del titulaire[num_caisse]
+
+        libres = {}
+        for nom in employes_presents:
+            indices_libres = get_available_slots_indices(nom, presence, matrice_planning, map_employes)
+            if i in indices_libres:
+                libres[nom] = get_continuous_block(indices_libres, i)
+
+        # --- A. RECONDUCTION ---
+        for num_caisse, nom in titulaire.items():
+            if nom in libres:
+                assigner_tache(nom, f"C{num_caisse}", i, 1)
+                del libres[nom]
+
+        # --- B. COMBLEMENT ---
+        for num_caisse in ORDRE_CAISSES:
+            if num_caisse in titulaire:
                 continue
-                
-            # Préservation pendant la pause
-            last_occupant_col = None
-            if i > 0:
-                for j in range(i - 1, -1, -1):
-                    col = next((x for x in range(len(employes_presents)) if matrice_planning[j][x] == nom_caisse), None)
-                    if col is not None:
-                        last_occupant_col = col
-                        break
-            
-            if last_occupant_col is not None and matrice_planning[i][last_occupant_col] == "PAUSE":
-                continue
-                
-            candidats_disponibles = []
-            for nom in employes_presents:
-                indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
-                if i in indices_libres: 
-                    candidats_disponibles.append((nom, get_continuous_block(indices_libres, i)))
-                    
-            if not candidats_disponibles:
+            candidats = []
+            for nom, bloc in libres.items():
+                if not caisse_autorisee(num_caisse, infos_de(nom)):
+                    continue
+                # jamais de glissement vers la caisse mitoyenne
+                precedente = derniere_caisse(nom, i)
+                if precedente is not None and sont_adjacentes(precedente, num_caisse):
+                    continue
+                candidats.append((nom, bloc))
+            if not candidats:
                 continue
 
-            def score_caisse(c):
-                nom_c = c[0]
-                longueur_c = c[1]
-                infos = cache_emp.get(nom_c, {'statut': 'CDI', 'restriction_handicap': 'Aucun'})
-                
-                # Base penalty
-                if num_caisse in [1, 2]:
-                    penalite = get_penalite(nom_c, HIERARCHIE_PENALITE_C1_C2)
-                elif num_caisse in [13, 14]:
-                    penalite = get_penalite(nom_c, HIERARCHIE_PENALITE_C13_C14)
-                else:
-                    penalite = 0
-                
-                last_task = get_last_task_for_bonus(nom_c, i)
-                if last_task == nom_caisse:
-                    penalite -= 500000
-                elif last_task is not None and last_task.startswith("C"):
-                    penalite += 400000
-                    for pair in [[1,2], [13,14], [5,6], [3,4], [7,8], [9,10], [11,12]]:
-                        names = [f"C{n}" for n in pair]
-                        if last_task in names and nom_caisse in names:
-                            penalite += 999999
-                
-                # Bonus absolu (-100000) pour imposer l'intérim
-                if num_caisse in [1, 2, 13, 14] and infos.get('statut') == "Interimaire": 
-                    penalite -= 100000 
-                    
-                # Bonus pour Alicia qui aime la C1 (passe après les intérimaires)
-                if "Alicia" in nom_c and num_caisse == 1:
+            def score_comblement(candidat):
+                nom_c, longueur_c = candidat
+                penalite = penalite_hierarchie(nom_c, num_caisse)
+                # Retour au poste : apres une pause longue, un CLS ou une coupure
+                # midi, on remet l'employe sur la caisse qu'il tenait avant.
+                ancien_poste = poste_habituel.get(nom_c)
+                if ancien_poste == num_caisse:
+                    penalite -= 300000
+                elif ancien_poste is not None and ancien_poste not in titulaire:
+                    # sa caisse habituelle est libre : ne pas le detourner ici,
+                    # elle sera pourvue plus loin dans la boucle
+                    penalite += 150000
+                if num_caisse in CAISSES_CRITIQUES and infos_de(nom_c).get('statut') == "Interimaire":
+                    penalite -= 100000
+                if _cle_matche("alicia", nom_c) and num_caisse == 1:
                     penalite -= 50000
-                if longueur_c < 4:
+                if longueur_c < DUREE_MIN_CAISSE:
                     penalite += 200000
-                    
-                est_pair = (num_caisse % 2 == 0)
-                if (infos.get('restriction_handicap') == "Caisse Impaire Uniq." and est_pair) or \
-                   (infos.get('restriction_handicap') == "Caisse Paire Uniq." and not est_pair): 
-                    penalite += 999999
-                    
-                return (penalite, -longueur_c)
-                
-            candidats_disponibles.sort(key=score_caisse)
-            if score_caisse(candidats_disponibles[0])[0] < 900000: 
-                assigner_tache(candidats_disponibles[0][0], nom_caisse, i, 1)
-    
+                # nom_c en dernier critere : resultat deterministe, insensible a
+                # l'ordre de saisie des employes
+                return (penalite, -longueur_c, nom_c)
+
+            candidats.sort(key=score_comblement)
+            elu = candidats[0][0]
+            assigner_tache(elu, f"C{num_caisse}", i, 1)
+            titulaire[num_caisse] = elu
+            depuis_slot[elu] = i
+            poste_habituel[elu] = num_caisse
+            del libres[elu]
+
+        # --- C. REEQUILIBRAGE ---
+        # Aucun employe n'est libre a ce stade (sinon la phase B aurait pourvu) :
+        # on prend donc le titulaire de la caisse ouverte la moins prioritaire, et
+        # on FERME celle-ci. La caisse source n'etant pas recomblee, aucune cascade
+        # n'est possible.
+        #   - C1 et C2 : aucune tolerance, on comble des le premier creneau vide,
+        #     y compris pendant la pause du titulaire.
+        #   - C13 et C14 : on ne comble que si une solution stable existe. Sinon on
+        #     laisse le trou, jusqu'a TROU_TOLERE au maximum.
+        def caisse_tenue(num):
+            return any(matrice_planning[i][x] == f"C{num}" for x in range(len(employes_presents)))
+
+        for num_caisse in CAISSES_CRITIQUES:
+            if caisse_tenue(num_caisse):
+                vide_depuis.pop(num_caisse, None)
+            else:
+                vide_depuis.setdefault(num_caisse, i)
+
+        for num_caisse in ORDRE_CAISSES:
+            if num_caisse not in CAISSES_CRITIQUES or caisse_tenue(num_caisse):
+                continue
+            # Un repli deplace quelqu'un qui vient de s'installer : on ne se l'autorise
+            # que sur C1/C2, ou une fois le trou tolere epuise.
+            repli_autorise = (num_caisse in CAISSES_ININTERROMPUES
+                              or i - vide_depuis.get(num_caisse, i) >= TROU_TOLERE)
+            # En fin de journee on accepte un poste plus court que DUREE_MIN_CAISSE
+            # plutot que de fermer la caisse.
+            duree_utile = min(DUREE_MIN_CAISSE, len(slots) - i)
+
+            def trouver_source(niveau):
+                """niveau 0 = solution stable, 1 = repli, 2 = urgence (C1/C2, qui
+                ne doivent jamais fermer : on accepte alors un poste court)."""
+                candidats = []
+                rang_cible = ORDRE_CAISSES.index(num_caisse)
+                for autre in reversed(ORDRE_CAISSES):
+                    # la source doit etre strictement moins prioritaire que la cible.
+                    # On ne puise dans les autres caisses critiques que pour C1/C2 :
+                    # ailleurs, echanger C13 contre C14 ne ferait que deplacer le trou.
+                    if ORDRE_CAISSES.index(autre) <= rang_cible:
+                        continue
+                    if autre in CAISSES_CRITIQUES and num_caisse not in CAISSES_ININTERROMPUES:
+                        continue
+                    nom_s = titulaire.get(autre)
+                    if nom_s is None or matrice_planning[i][map_employes[nom_s]] != f"C{autre}":
+                        continue
+                    # contraintes dures, jamais relachees
+                    if not caisse_autorisee(num_caisse, infos_de(nom_s)):
+                        continue
+                    if sont_adjacentes(autre, num_caisse):
+                        continue
+                    # la phase B a pu l'installer ailleurs a ce creneau : on compare
+                    # aussi a la caisse qu'il tenait avant, sinon il glisse vers la
+                    # caisse mitoyenne en deux temps (C2 -> C13 -> C1)
+                    precedente = derniere_caisse(nom_s, i)
+                    if precedente is not None and sont_adjacentes(precedente, num_caisse):
+                        continue
+                    restante = presence_restante(nom_s, i)
+                    # un poste doit tenir au moins 1h... sauf urgence sur C1/C2
+                    if niveau < 2 and restante < min(4, len(slots) - i):
+                        continue
+                    # confort : ne pas deplacer quelqu'un qui vient de s'installer,
+                    # ni pour un poste plus court que DUREE_MIN_CAISSE
+                    if niveau < 1:
+                        if i - depuis_slot.get(nom_s, i) < duree_utile:
+                            continue
+                        if restante < duree_utile:
+                            continue
+                    candidats.append((autre, restante))
+                if not candidats:
+                    return None
+                # a niveau egal, on prend celui qui tiendra le poste le plus longtemps,
+                # puis la caisse la moins prioritaire (fin de ORDRE_CAISSES).
+                candidats.sort(key=lambda c: (-c[1], -ORDRE_CAISSES.index(c[0])))
+                return candidats[0][0]
+
+            source = trouver_source(0)
+            if source is None and repli_autorise:
+                source = trouver_source(1)
+            if source is None and num_caisse in CAISSES_ININTERROMPUES:
+                source = trouver_source(2)
+            if source is None:
+                continue
+            nom = titulaire.pop(source)
+            matrice_planning[i][map_employes[nom]] = f"C{num_caisse}"
+            titulaire[num_caisse] = nom   # remplace le titulaire en pause longue
+            depuis_slot[nom] = i
+            poste_habituel[nom] = num_caisse
+            vide_depuis.pop(num_caisse, None)
+
+
     # --- ETAPE 6 : POLYVALENT ---
     for nom in employes_presents:
-        indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
+        indices_libres = get_available_slots_indices(nom, presence, matrice_planning, map_employes)
         if indices_libres:
             blocs_continus = [[indices_libres[0]]]
             for k in range(1, len(indices_libres)):
