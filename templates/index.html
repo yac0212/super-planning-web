@@ -51,8 +51,9 @@
                 </div>
                 </div>
 
-                <div class="emp-actions">
-                    <button class="btn-icon edit" onclick="openEditModal(${emp.id}, '${emp.nom ? emp.nom.replace(/'/g, "\\'") : ''}', '${emp.statut}', ${emp.restriction_cls}, '${emp.restriction_handicap}', ${emp.heures_contrat || 35.0}, '${emp.type_contrat || emp.statut}', ${emp.forme_caisse !== false}, ${emp.forme_cls === true}, ${emp.articles_minute || 0.0}, ${emp.note_manager || 5.0})"><i data-lucide="edit-2"></i></button> Rafraîchir</button>
+                <div class="toolbar glass-card">
+                    <button class="btn btn-secondary" id="btn-save-planning"><i data-lucide="save"></i> Sauvegarder</button>
+                    <button class="btn btn-secondary" id="btn-refresh-planning"><i data-lucide="refresh-cw"></i> Rafraîchir</button>
                     <div class="spacer"></div>
                 </div>
 
