@@ -289,25 +289,46 @@ document.addEventListener('DOMContentLoaded', () => {
         if (res) alert('Horaires enregistrés !');
     });
 
+    // Le navigateur bloque window.open appele APRES un await : le geste
+    // utilisateur a expire. On ouvre donc l'onglet des le clic, puis on le
+    // redirige une fois la reponse recue.
+    function ouvrirOngletDifferé() {
+        const onglet = window.open('', '_blank');
+        if (onglet) {
+            onglet.document.write('<p style="font-family:sans-serif;padding:2rem">Génération en cours…</p>');
+        }
+        return {
+            versUrl(url) {
+                if (onglet) onglet.location = url;
+                else window.location = url;   // popups bloquees : on navigue dans l'onglet courant
+            },
+            annuler() {
+                if (onglet) onglet.close();
+            }
+        };
+    }
+
     document.getElementById('btn-generate-pauses').addEventListener('click', async () => {
         const rawDate = document.getElementById('planning-date').value;
         const parts = rawDate.split('-');
         const dateStr = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : rawDate;
-        
+
         const { inputs } = getPlanningInputs();
         const data = {
             date: dateStr,
             inputs: inputs
         };
+        const onglet = ouvrirOngletDifferé();
         const res = await apiCall('/api/generate_pauses', 'POST', data);
-        if (res && res.url) window.open(res.url, '_blank');
+        if (res && res.url) onglet.versUrl(res.url);
+        else onglet.annuler();
     });
 
     document.getElementById('btn-generate-planning').addEventListener('click', async () => {
         const rawDate = document.getElementById('planning-date').value;
         const parts = rawDate.split('-');
         const dateStr = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : rawDate;
-        
+
         const { inputs } = getPlanningInputs();
         if (Object.keys(inputs).length === 0) {
             alert("Veuillez saisir au moins un horaire.");
@@ -317,8 +338,10 @@ document.addEventListener('DOMContentLoaded', () => {
             date: dateStr,
             inputs: inputs
         };
+        const onglet = ouvrirOngletDifferé();
         const res = await apiCall('/api/generate_planning', 'POST', data);
-        if (res && res.url) window.open(res.url, '_blank');
+        if (res && res.url) onglet.versUrl(res.url);
+        else onglet.annuler();
     });
 
     // === INTERIM ===
