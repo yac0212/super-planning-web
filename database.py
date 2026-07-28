@@ -3,7 +3,24 @@ import sqlite3
 from datetime import datetime
 
 DATA_DIR = os.environ.get('DATA_DIR', '.')
-DB_FILE = os.path.join(DATA_DIR, "supermarche_dev.db")
+
+# Noms de base historiques : la prod utilise supermarche_data.db, les postes de
+# developpement supermarche_dev.db. On reprend le fichier qui existe deja plutot
+# que d'imposer un nom : sinon init_db() cree une base vide a cote de la vraie et
+# l'application demarre sans aucune donnee.
+_NOMS_BASE = ["supermarche_data.db", "supermarche_dev.db"]
+
+def _resoudre_db():
+    impose = os.environ.get('DB_NAME')
+    if impose:
+        return os.path.join(DATA_DIR, impose)
+    for nom in _NOMS_BASE:
+        chemin = os.path.join(DATA_DIR, nom)
+        if os.path.exists(chemin) and os.path.getsize(chemin) > 0:
+            return chemin
+    return os.path.join(DATA_DIR, _NOMS_BASE[0])
+
+DB_FILE = _resoudre_db()
 
 def get_db_connection():
     conn = sqlite3.connect(DB_FILE)
