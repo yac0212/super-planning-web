@@ -23,6 +23,12 @@ TROU_TOLERE = 6  # 1h30
 DUREE_MIN_CAISSE = 6  # 1h30
 # Caisses adjacentes : un employe ne doit pas glisser de l'une a l'autre.
 PAIRES_ADJACENTES = [[1, 2], [13, 14], [5, 6], [3, 4], [7, 8], [9, 10], [11, 12]]
+# On n'installe personne sur une caisse pour un bloc isole de 15 min : mieux vaut
+# laisser la caisse libre et faire commencer le suivant plus tot.
+DUREE_MIN_BLOC_CAISSE = 2  # 30 min
+# Quand le titulaire de la mission pause part en coupure ou termine sa journee,
+# on ne mobilise pas quelqu'un d'autre pour un reliquat trop court.
+RELAI_PAUSE_MIN = 3  # 45 min
 
 HIERARCHIE_PENALITE_C1_C2 = {
     "léandre": 1000, 
@@ -277,9 +283,14 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
     # --- ETAPE 1 : LES PAUSES ---
     slots_pause_matin = math.ceil((minutes_matin + MARGE_MISSION_PAUSE_MIN) / 15)
     if slots_pause_matin > 0:
-        cur_idx = 6 
+        cur_idx = 6
         restant = slots_pause_matin
+        premier_titulaire = True
         while restant > 0 and cur_idx < 20:
+            # Le titulaire precedent est parti en coupure ou a fini sa journee :
+            # on ne mobilise pas quelqu'un d'autre pour un reliquat de moins de 45 min.
+            if not premier_titulaire and restant < RELAI_PAUSE_MIN:
+                break
             candidats_disponibles = []
             for nom in employes_presents:
                 if _cle_matche("andré", nom): continue
@@ -312,12 +323,16 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
             db.inc_mission_score(gagnant['nom'])
             cur_idx += longueur_assignee
             restant -= longueur_assignee
+            premier_titulaire = False
 
     slots_pause_aprem = math.ceil((minutes_aprem + MARGE_MISSION_PAUSE_MIN) / 15)
     if slots_pause_aprem > 0 and not est_dimanche:
         restant = slots_pause_aprem
         cur_idx = max(24, 40 - restant)
+        premier_titulaire = True
         while restant > 0 and cur_idx < 44:
+            if not premier_titulaire and restant < RELAI_PAUSE_MIN:
+                break
             candidats_disponibles = []
             for nom in employes_presents:
                 if _cle_matche("andré", nom): continue
@@ -349,8 +364,7 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
             db.inc_mission_score(gagnant['nom'])
             cur_idx += longueur_assignee
             restant -= longueur_assignee
-
-
+            premier_titulaire = False
 
     # --- ETAPE 3 : ASSIGNATION CHRONOLOGIQUE DES CAISSES ---
     # Trois phases par creneau. L'ancienne version remettait les 14 caisses en
@@ -430,6 +444,7 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
             if num_caisse in titulaire:
                 continue
             candidats = []
+            trop_courts = []
             for nom, bloc in libres.items():
                 if not caisse_autorisee(num_caisse, infos_de(nom)):
                     continue
@@ -437,7 +452,16 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
                 precedente = derniere_caisse(nom, i)
                 if precedente is not None and sont_adjacentes(precedente, num_caisse):
                     continue
+                # pas de bloc isole : si l'employe part en pause ou en coupure au
+                # creneau suivant, on ne l'installe pas pour 15 min. La caisse reste
+                # libre et le titulaire suivant la prend plus tot.
+                if bloc < DUREE_MIN_BLOC_CAISSE:
+                    trop_courts.append((nom, bloc))
+                    continue
                 candidats.append((nom, bloc))
+            # C1 et C2 ne ferment jamais : en dernier recours on accepte un bloc court
+            if not candidats and num_caisse in CAISSES_ININTERROMPUES:
+                candidats = trop_courts
             if not candidats:
                 continue
 
@@ -530,6 +554,10 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
                     restante = presence_restante(nom_s, i)
                     # un poste doit tenir au moins 1h... sauf urgence sur C1/C2
                     if niveau < 2 and restante < min(4, len(slots) - i):
+                        continue
+                    # le deplacer alors qu'il vient de s'asseoir laisserait un bloc
+                    # isole de 15 min sur la caisse qu'il quitte
+                    if niveau < 2 and i - depuis_slot.get(nom_s, i) < DUREE_MIN_BLOC_CAISSE:
                         continue
                     # confort : ne pas deplacer quelqu'un qui vient de s'installer,
                     # ni pour un poste plus court que DUREE_MIN_CAISSE
