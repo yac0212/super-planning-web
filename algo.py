@@ -6,7 +6,7 @@ import database as db
 # Version de l'algorithme. Affichee dans le badge de l'interface : comme elle est
 # lue depuis CE module, elle atteste que le algo.py charge en memoire est bien le
 # bon. A incrementer a chaque modification de comportement.
-VERSION = "2.1"
+VERSION = "2.4"
 
 TIME_STEP = 15
 MARGE_MISSION_PAUSE_MIN = 30
@@ -110,6 +110,476 @@ def sont_adjacentes(num_a, num_b):
         return False
     return any(num_a in p and num_b in p for p in PAIRES_ADJACENTES)
 
+# ---------------------------------------------------------------------------
+# OPTIMISATION GLOBALE
+# ---------------------------------------------------------------------------
+# Effort alloue a la recherche, en NOMBRE D'ESSAIS et non en secondes : deux
+# generations du meme jour doivent donner exactement le meme planning, ce qu'un
+# arret au chronometre ne permet pas (le nombre d'iterations varierait avec la
+# charge machine). 0 desactive l'optimisation.
+ESSAIS_OPTIM = int(os.environ.get("ESSAIS_OPTIM", "60000"))
+# Garde-fou : si le serveur est trop lent, on s'arrete quand meme. Atteindre ce
+# plafond rend le resultat non reproductible — un avertissement est alors trace.
+TEMPS_MAX_OPTIM_S = 30.0
+
+# Couts (plus c'est haut, plus c'est penalisant). Les valeurs negatives sont des
+# recompenses. C'est ici que se regle l'arbitrage metier.
+POIDS = {
+    "c1c2_fermee":       1000,  # par creneau ou C1/C2 ferme alors qu'on pouvait la tenir
+    "trou_critique":      300,  # par creneau de trou sur C13/C14 au-dela de TROU_TOLERE
+    # Les releves sont facturees de facon PROGRESSIVE : la k-ieme releve sur une
+    # meme caisse coute k fois ce montant. Une passation matin/apres-midi reste
+    # bon marche, un morcellement en six titulaires devient prohibitif. Sans cette
+    # progression, l'optimiseur supprime les releves en figeant tout le monde.
+    "releve":              60,
+    "releve_non_alignee": 150,  # supplement si le sortant restait disponible
+    "bloc_court":         300,  # poste de moins de DUREE_MIN_CAISSE
+    "bloc_isole":         800,  # poste de 15 min
+    "meme_caisse_jour":   300,  # meme caisse matin et apres-midi, hors C1/C2/C13/C14
+    # Recompense pour une caisse tenue. Elle est GRADUEE selon la priorite de la
+    # caisse : tenir C1 vaut trois fois tenir C12. Avec une recompense uniforme,
+    # l'optimiseur deplacait les gens vers n'importe quelle caisse libre et on
+    # retrouvait C10, C11 et C12 tenues pendant que C5 et C6 restaient fermees.
+    "couverture_c1c2":   -800,  # C1 et C2 : quasiment une contrainte
+    "couverture_c13c14": -400,  # C13 et C14 : tres fortement souhaitees
+    "couverture_base":    -40,  # part fixe des autres caisses
+    "couverture_priorite": -12,  # part variable, multipliee par le rang inverse
+}
+
+
+def recompense_couverture(num_caisse):
+    """Une pente lineaire ne suffisait pas : l'optimiseur fermait C14 quatre
+    creneaux pour ouvrir C10 et C12. Les caisses critiques sont donc traitees a
+    part, avec une recompense qui domine toute economie de releve."""
+    if num_caisse in CAISSES_ININTERROMPUES:
+        return POIDS["couverture_c1c2"]
+    if num_caisse in CAISSES_CRITIQUES:
+        return POIDS["couverture_c13c14"]
+    rang = ORDRE_CAISSES.index(num_caisse)
+    return (POIDS["couverture_base"]
+            + POIDS["couverture_priorite"] * (len(ORDRE_CAISSES) - rang))
+
+
+def _num_caisse(tache):
+    if tache and tache.startswith("C") and tache != "CLS":
+        try:
+            return int(tache[1:])
+        except ValueError:
+            return None
+    return None
+
+
+def evaluer_planning(matrice, slots, employes_presents, map_employes, presence, cache_emp):
+    """Cout total d'un planning complet. Plus il est bas, meilleur il est."""
+    nb_slots = len(slots)
+    nb_emp = len(employes_presents)
+    cout = 0
+
+    # --- lecture par caisse : releves, trous, couverture ---
+    for num in ORDRE_CAISSES:
+        nom_caisse = f"C{num}"
+        occupant = []
+        for i in range(nb_slots):
+            qui = None
+            for x in range(nb_emp):
+                if matrice[i][x] == nom_caisse:
+                    qui = x
+                    break
+            occupant.append(qui)
+
+        cout += recompense_couverture(num) * sum(1 for q in occupant if q is not None)
+
+        # suite des titulaires, doublons consecutifs fusionnes
+        suite = []
+        for i, q in enumerate(occupant):
+            if q is not None and (not suite or suite[-1][0] != q):
+                suite.append((q, i))
+        for k in range(1, len(suite)):
+            cout += POIDS["releve"] * k      # progressif : la 5e releve coute 5 fois la 1re
+            sortant, _ = suite[k - 1]
+            _, debut = suite[k]
+            # une releve est justifiee si le sortant n'etait plus disponible
+            nom_sortant = employes_presents[sortant]
+            encore_la = presence[nom_sortant][debut] and matrice[debut][sortant] not in ("CLS", "PAUSE")
+            if encore_la:
+                cout += POIDS["releve_non_alignee"]
+
+        # trous
+        if num in CAISSES_CRITIQUES:
+            longueur_trou = 0
+            for i in range(nb_slots):
+                if occupant[i] is not None:
+                    longueur_trou = 0
+                    continue
+                # y a-t-il quelqu'un a redeployer depuis une caisse moins prioritaire ?
+                rang = ORDRE_CAISSES.index(num)
+                secours = any(
+                    _num_caisse(matrice[i][x]) is not None
+                    and ORDRE_CAISSES.index(_num_caisse(matrice[i][x])) > rang
+                    and not sont_adjacentes(_num_caisse(matrice[i][x]), num)
+                    and (num in CAISSES_ININTERROMPUES
+                         or _num_caisse(matrice[i][x]) not in CAISSES_CRITIQUES)
+                    for x in range(nb_emp))
+                if not secours:
+                    continue
+                longueur_trou += 1
+                if num in CAISSES_ININTERROMPUES:
+                    cout += POIDS["c1c2_fermee"]
+                elif longueur_trou > TROU_TOLERE:
+                    cout += POIDS["trou_critique"]
+
+    # --- lecture par employe : longueur des postes, rotation de midi ---
+    for x, nom in enumerate(employes_presents):
+        seq = [matrice[i][x] for i in range(nb_slots)]
+        blocs = []
+        courant, longueur = None, 0
+        for t in seq:
+            if t == "PAUSE":
+                continue
+            n = _num_caisse(t)
+            if n is not None and n == courant:
+                longueur += 1
+            else:
+                if courant is not None:
+                    blocs.append((courant, longueur))
+                courant, longueur = n, (1 if n is not None else 0)
+        if courant is not None:
+            blocs.append((courant, longueur))
+
+        fusionnes = []
+        for n, l in blocs:
+            if fusionnes and fusionnes[-1][0] == n:
+                fusionnes[-1] = (n, fusionnes[-1][1] + l)
+            else:
+                fusionnes.append((n, l))
+
+        for n, l in fusionnes:
+            if l < DUREE_MIN_BLOC_CAISSE:
+                cout += POIDS["bloc_isole"]
+            elif l < DUREE_MIN_CAISSE:
+                cout += POIDS["bloc_court"]
+
+        # meme caisse avant et apres la coupure
+        avant, apres, coupure_vue = set(), set(), False
+        for i in range(nb_slots):
+            if not presence[nom][i]:
+                if avant:
+                    coupure_vue = True
+                continue
+            n = _num_caisse(seq[i])
+            if n is not None:
+                (apres if coupure_vue else avant).add(n)
+        for n in (avant & apres) - CAISSES_CRITIQUES:
+            cout += POIDS["meme_caisse_jour"]
+
+    return cout
+
+
+def _segments_employe(matrice, colonne, nb_slots):
+    """Blocs contigus de meme caisse pour un employe : [(num, debut, fin_exclue)]."""
+    segments = []
+    courant, debut = None, 0
+    for i in range(nb_slots):
+        n = _num_caisse(matrice[i][colonne])
+        if n != courant:
+            if courant is not None:
+                segments.append((courant, debut, i))
+            courant, debut = n, i
+    if courant is not None:
+        segments.append((courant, debut, nb_slots))
+    return segments
+
+
+def optimiser_planning(matrice, slots, employes_presents, map_employes,
+                       presence, cache_emp, plan_data, date_saisie, nb_essais):
+    """Recherche locale : part du planning glouton et teste des variantes.
+    Ne renvoie jamais un planning moins bon que celui recu."""
+    import random
+    import hashlib
+    import time as _time
+
+    nb_slots = len(slots)
+    nb_emp = len(employes_presents)
+    if nb_emp == 0:
+        return matrice
+
+    # Graine deterministe : deux generations identiques donnent le meme planning.
+    # Les noms sont TRIES, sinon l'ordre de saisie changerait la graine donc le
+    # resultat, et le planning ne serait plus reproductible.
+    graine = hashlib.md5(
+        (date_saisie + "|" + "|".join(sorted(employes_presents))).encode("utf-8")).hexdigest()
+    alea = random.Random(int(graine[:8], 16))
+
+    # Les colonnes de la matrice suivent l'ordre de saisie. Pour que le tirage
+    # aleatoire designe le meme employe quel que soit cet ordre, on pioche dans
+    # une liste triee par nom au lieu de tirer un numero de colonne.
+    ordre_canonique = sorted(range(nb_emp), key=lambda x: employes_presents[x])
+
+    def employe_alea():
+        return ordre_canonique[alea.randrange(nb_emp)]
+
+    def deux_employes_alea():
+        a, b = alea.sample(range(nb_emp), 2)
+        return ordre_canonique[a], ordre_canonique[b]
+
+    def infos_de(nom):
+        return cache_emp.get(nom, {'statut': 'CDI', 'restriction_cls': False,
+                                   'restriction_handicap': 'Aucun'})
+
+    def modifiable(i, x):
+        """Une cellule CLS ou PAUSE est figee ; le reste est negociable."""
+        return matrice_courante[i][x] not in ("CLS", "PAUSE")
+
+    def caisse_libre(num, debut, fin, sauf_x):
+        nom_caisse = f"C{num}"
+        for i in range(debut, fin):
+            for x in range(nb_emp):
+                if x != sauf_x and matrice_courante[i][x] == nom_caisse:
+                    return False
+        return True
+
+    def caisse_avant(x, i):
+        """Derniere caisse tenue avant le creneau i. Une PAUSE ne rompt pas la
+        continuite : sans ce parcours, un enchainement C13 -> PAUSE -> C14 passait
+        au travers du controle des caisses mitoyennes."""
+        for j in range(i - 1, -1, -1):
+            tache = matrice_courante[j][x]
+            if tache == "PAUSE":
+                continue
+            return _num_caisse(tache) if tache else None
+        return None
+
+    def caisse_apres(x, i):
+        for j in range(i, nb_slots):
+            tache = matrice_courante[j][x]
+            if tache == "PAUSE":
+                continue
+            return _num_caisse(tache) if tache else None
+        return None
+
+    def pose_valide(x, num, debut, fin):
+        nom = employes_presents[x]
+        if not caisse_autorisee(num, infos_de(nom)):
+            return False
+        for i in range(debut, fin):
+            if not presence[nom][i] or not modifiable(i, x):
+                return False
+        # pas de glissement vers la caisse mitoyenne, avant comme apres
+        avant = caisse_avant(x, debut)
+        apres = caisse_apres(x, fin)
+        if avant is not None and sont_adjacentes(avant, num):
+            return False
+        if apres is not None and sont_adjacentes(apres, num):
+            return False
+        return True
+
+    # ---- mouvements ----
+    def mouvement_reassigner():
+        """Deplace un poste entier vers une autre caisse restee libre."""
+        x = employe_alea()
+        segs = _segments_employe(matrice_courante, x, nb_slots)
+        if not segs:
+            return None
+        num, debut, fin = alea.choice(segs)
+        cible = alea.choice(ORDRE_CAISSES)
+        if cible == num or not caisse_libre(cible, debut, fin, x):
+            return None
+        if not pose_valide(x, cible, debut, fin):
+            return None
+        return [(i, x, f"C{cible}") for i in range(debut, fin)]
+
+    def mouvement_prolonger():
+        """Etend un poste sur les creneaux voisins ou la caisse est vide."""
+        x = employe_alea()
+        segs = _segments_employe(matrice_courante, x, nb_slots)
+        if not segs:
+            return None
+        num, debut, fin = alea.choice(segs)
+        vers_avant = alea.random() < 0.5
+        chgs = []
+        if vers_avant:
+            i = debut - 1
+            while i >= 0 and len(chgs) < 12:
+                if not caisse_libre(num, i, i + 1, x) or not pose_valide(x, num, i, i + 1):
+                    break
+                chgs.append((i, x, f"C{num}"))
+                i -= 1
+        else:
+            i = fin
+            while i < nb_slots and len(chgs) < 12:
+                if not caisse_libre(num, i, i + 1, x) or not pose_valide(x, num, i, i + 1):
+                    break
+                chgs.append((i, x, f"C{num}"))
+                i += 1
+        return chgs or None
+
+    def mouvement_echanger():
+        """Deux employes echangent leur caisse sur une fenetre commune."""
+        if nb_emp < 2:
+            return None
+        x1, x2 = deux_employes_alea()
+        s1 = _segments_employe(matrice_courante, x1, nb_slots)
+        s2 = _segments_employe(matrice_courante, x2, nb_slots)
+        if not s1 or not s2:
+            return None
+        n1, d1, f1 = alea.choice(s1)
+        n2, d2, f2 = alea.choice(s2)
+        if n1 == n2:
+            return None
+        debut, fin = max(d1, d2), min(f1, f2)
+        if fin - debut < 1:
+            return None
+        if not (pose_valide(x1, n2, debut, fin) and pose_valide(x2, n1, debut, fin)):
+            return None
+        return ([(i, x1, f"C{n2}") for i in range(debut, fin)]
+                + [(i, x2, f"C{n1}") for i in range(debut, fin)])
+
+    def mouvement_liberer():
+        """Retire un poste trop court : mieux vaut une caisse vide qu'un bloc isole."""
+        x = employe_alea()
+        segs = [s for s in _segments_employe(matrice_courante, x, nb_slots)
+                if s[2] - s[1] < DUREE_MIN_BLOC_CAISSE]
+        if not segs:
+            return None
+        _, debut, fin = alea.choice(segs)
+        return [(i, x, "") for i in range(debut, fin)]
+
+    def mouvement_absorber():
+        """Le mouvement qui defragmente : sur une caisse partagee, le titulaire
+        precedent reprend le poste du suivant, qui est libere et sera replace par
+        une autre iteration. Sans lui, on ne peut qu'etendre sur du vide."""
+        num = alea.choice(ORDRE_CAISSES)
+        nom_caisse = f"C{num}"
+        occupant = []
+        for i in range(nb_slots):
+            qui = None
+            for x in range(nb_emp):
+                if matrice_courante[i][x] == nom_caisse:
+                    qui = x
+                    break
+            occupant.append(qui)
+        suite = []
+        for i, q in enumerate(occupant):
+            if q is not None and (not suite or suite[-1][0] != q):
+                suite.append((q, i))
+        if len(suite) < 2:
+            return None
+        k = alea.randrange(1, len(suite))
+        absorbant, absorbe, debut = suite[k - 1][0], suite[k][0], suite[k][1]
+        fin = debut
+        while fin < nb_slots and occupant[fin] == absorbe:
+            fin += 1
+        nom_a = employes_presents[absorbant]
+        for i in range(debut, fin):
+            if not presence[nom_a][i] or matrice_courante[i][absorbant] in ("CLS", "PAUSE"):
+                return None
+        if not pose_valide(absorbant, num, debut, fin):
+            return None
+        chgs = [(i, absorbant, nom_caisse) for i in range(debut, fin)]
+        # L'absorbant tenait peut-etre une autre caisse pendant cette periode :
+        # on y installe l'absorbe plutot que de le laisser sans affectation. En
+        # planning sature, le liberer perdait de la couverture et le mouvement
+        # etait systematiquement refuse.
+        caisse_liberee = _num_caisse(matrice_courante[debut][absorbant])
+        if (caisse_liberee is not None
+                and all(_num_caisse(matrice_courante[i][absorbant]) == caisse_liberee
+                        for i in range(debut, fin))
+                and pose_valide(absorbe, caisse_liberee, debut, fin)):
+            chgs += [(i, absorbe, f"C{caisse_liberee}") for i in range(debut, fin)]
+        else:
+            chgs += [(i, absorbe, "") for i in range(debut, fin)]
+        return chgs
+
+    def mouvement_combler():
+        """Replace un employe inoccupe sur une caisse libre."""
+        x = employe_alea()
+        nom = employes_presents[x]
+        creneaux = [i for i in range(nb_slots)
+                    if presence[nom][i] and matrice_courante[i][x] == ""]
+        if not creneaux:
+            return None
+        debut = alea.choice(creneaux)
+        fin = debut
+        while (fin < nb_slots and presence[nom][fin]
+               and matrice_courante[fin][x] == "" and fin - debut < 20):
+            fin += 1
+        num = alea.choice(ORDRE_CAISSES)
+        if not caisse_libre(num, debut, fin, x) or not pose_valide(x, num, debut, fin):
+            return None
+        return [(i, x, f"C{num}") for i in range(debut, fin)]
+
+    # En planning sature — le cas reel : 22 employes pour 14 caisses — il n'y a
+    # presque aucun creneau libre. Prolonger, combler et reassigner echouent
+    # alors systematiquement : seuls l'echange et l'absorption font bouger les
+    # choses. Les poids refletent cette realite.
+    MOUVEMENTS = [mouvement_echanger, mouvement_absorber, mouvement_prolonger,
+                  mouvement_combler, mouvement_reassigner, mouvement_liberer]
+    POIDS_MOUV = [8, 7, 3, 3, 2, 1]
+
+    matrice_courante = [ligne[:] for ligne in matrice]
+    cout_courant = evaluer_planning(matrice_courante, slots, employes_presents,
+                                    map_employes, presence, cache_emp)
+    meilleure = [ligne[:] for ligne in matrice_courante]
+    cout_meilleur = cout_courant
+
+    # Recuit simule : on accepte parfois une degradation pour sortir des optima
+    # locaux, avec une tolerance qui decroit jusqu'a zero. Le meilleur planning
+    # rencontre est conserve a part, donc le resultat ne peut pas etre moins bon.
+    TEMPERATURE_DEPART = 350.0
+    t0 = _time.time()
+    essais = acceptes = 0
+    sans_gain = 0
+    interrompu = False
+    while essais < nb_essais:
+        if _time.time() - t0 >= TEMPS_MAX_OPTIM_S:
+            interrompu = True
+            break
+        # la temperature suit l'avancement en ESSAIS, pas le chronometre :
+        # c'est ce qui garantit deux resultats identiques d'une fois sur l'autre
+        temperature = max(1e-6, TEMPERATURE_DEPART * (1.0 - essais / nb_essais))
+        for _ in range(200):            # on ne lit l'horloge que tous les 200 essais
+            essais += 1
+            chgs = alea.choices(MOUVEMENTS, weights=POIDS_MOUV)[0]()
+            if not chgs:
+                continue
+            anciens = [(i, x, matrice_courante[i][x]) for i, x, _ in chgs]
+            for i, x, v in chgs:
+                matrice_courante[i][x] = v
+            cout = evaluer_planning(matrice_courante, slots, employes_presents,
+                                    map_employes, presence, cache_emp)
+            ecart = cout - cout_courant
+            if ecart <= 0 or alea.random() < math.exp(-ecart / temperature):
+                cout_courant = cout
+                acceptes += 1
+                if cout < cout_meilleur:
+                    cout_meilleur = cout
+                    meilleure = [ligne[:] for ligne in matrice_courante]
+                    sans_gain = 0
+                else:
+                    sans_gain += 1
+            else:
+                for i, x, v in anciens:  # refuse : on remet en etat
+                    matrice_courante[i][x] = v
+                sans_gain += 1
+            # relance depuis le meilleur connu quand la recherche s'enlise
+            if sans_gain > 6000:
+                matrice_courante = [ligne[:] for ligne in meilleure]
+                cout_courant = cout_meilleur
+                sans_gain = 0
+
+    optimiser_planning.dernieres_stats = {
+        "essais": essais, "acceptes": acceptes,
+        "cout_depart": evaluer_planning(matrice, slots, employes_presents,
+                                        map_employes, presence, cache_emp),
+        "cout_final": cout_meilleur,
+        "secondes": round(_time.time() - t0, 2),
+        # vrai si le garde-fou de temps a coupe la recherche : le planning reste
+        # valide mais n'est plus reproductible a l'identique
+        "interrompu_par_le_temps": interrompu,
+    }
+    return meilleure
+
+
 def generate_timeline():
     start_time = datetime.strptime("09:00", "%H:%M")
     end_time = datetime.strptime("20:00", "%H:%M")
@@ -151,7 +621,9 @@ def get_continuous_block(indices_libres, start_idx):
         curseur += 1
     return compteur
 
-def run_algo(date_saisie, inputs_dict, cache_emp):
+def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
+    if essais_optim is None:
+        essais_optim = ESSAIS_OPTIM
     try: 
         date_obj = datetime.strptime(date_saisie, "%d/%m/%Y")
     except ValueError: 
@@ -610,6 +1082,16 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
             poste_habituel[nom] = num_caisse
             vide_depuis.pop(num_caisse, None)
 
+
+    # --- ETAPE 4 : OPTIMISATION GLOBALE ---
+    # Les etapes precedentes decident creneau par creneau, sans jamais revenir en
+    # arriere : elles ne peuvent pas voir qu'une caisse va passer entre six mains
+    # dans la journee. Ici on note le planning entier, puis on teste des milliers
+    # de variantes en gardant la meilleure.
+    if essais_optim > 0:
+        matrice_planning = optimiser_planning(
+            matrice_planning, slots, employes_presents, map_employes,
+            presence, cache_emp, plan_data, date_saisie, essais_optim)
 
     # --- ETAPE 6 : POLYVALENT ---
     for nom in employes_presents:
