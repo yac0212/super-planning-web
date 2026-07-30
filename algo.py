@@ -395,6 +395,18 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
             return None
         return None
 
+    def apres_coupure(nom_c, courant_i):
+        """Vrai si l'employe a quitte le site depuis la derniere caisse qu'il tenait.
+        Une pause ou un CLS ne comptent pas : il est reste sur place."""
+        colonne = map_employes[nom_c]
+        for j in range(courant_i - 1, -1, -1):
+            if not presence[nom_c][j]:
+                return True
+            tache = matrice_planning[j][colonne]
+            if tache and tache != "PAUSE" and tache.startswith("C") and tache != "CLS":
+                return False
+        return False
+
     def presence_restante(nom_c, depart_i):
         """Nombre de creneaux consecutifs ou l'employe est encore sur site."""
         compteur = 0
@@ -468,11 +480,16 @@ def run_algo(date_saisie, inputs_dict, cache_emp):
             def score_comblement(candidat):
                 nom_c, longueur_c = candidat
                 penalite = penalite_hierarchie(nom_c, num_caisse)
-                # Retour au poste : apres une pause longue, un CLS ou une coupure
-                # midi, on remet l'employe sur la caisse qu'il tenait avant.
                 ancien_poste = poste_habituel.get(nom_c)
                 if ancien_poste == num_caisse:
-                    penalite -= 300000
+                    # Apres une pause ou un CLS, l'employe reprend sa caisse.
+                    # Apres une coupure en revanche, on prefere qu'il change : faire
+                    # la meme caisse matin et apres-midi est mal vecu. Exception pour
+                    # C1, C2, C13 et C14, ou l'usage l'accepte.
+                    if num_caisse in CAISSES_CRITIQUES or not apres_coupure(nom_c, i):
+                        penalite -= 300000
+                    else:
+                        penalite += 250000
                 elif ancien_poste is not None and ancien_poste not in titulaire:
                     # sa caisse habituelle est libre : ne pas le detourner ici,
                     # elle sera pourvue plus loin dans la boucle
