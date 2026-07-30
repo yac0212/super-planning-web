@@ -292,6 +292,27 @@ document.addEventListener('DOMContentLoaded', () => {
     // Le navigateur bloque window.open appele APRES un await : le geste
     // utilisateur a expire. On ouvre donc l'onglet des le clic, puis on le
     // redirige une fois la reponse recue.
+    // La generation prend desormais plusieurs secondes (optimisation globale) :
+    // sans retour visuel, l'utilisateur croit que le bouton n'a pas repondu.
+    function afficherChargement(titre, sousTitre) {
+        const voile = document.createElement('div');
+        voile.id = 'voile-chargement';
+        voile.innerHTML = `
+            <div class="voile-boite">
+                <div class="voile-anneau"></div>
+                <div class="voile-titre">${titre}</div>
+                <div class="voile-sous-titre">${sousTitre}</div>
+                <div class="voile-chrono">0,0 s</div>
+            </div>`;
+        document.body.appendChild(voile);
+        const depart = Date.now();
+        const chrono = setInterval(() => {
+            const s = ((Date.now() - depart) / 1000).toFixed(1).replace('.', ',');
+            voile.querySelector('.voile-chrono').textContent = `${s} s`;
+        }, 100);
+        return () => { clearInterval(chrono); voile.remove(); };
+    }
+
     function ouvrirOngletDifferé() {
         const onglet = window.open('', '_blank');
         if (onglet) {
@@ -319,9 +340,15 @@ document.addEventListener('DOMContentLoaded', () => {
             inputs: inputs
         };
         const onglet = ouvrirOngletDifferé();
-        const res = await apiCall('/api/generate_pauses', 'POST', data);
-        if (res && res.url) onglet.versUrl(res.url);
-        else onglet.annuler();
+        const fermer = afficherChargement('Calcul de la feuille de pauses',
+                                          'Répartition des missions en cours');
+        try {
+            const res = await apiCall('/api/generate_pauses', 'POST', data);
+            if (res && res.url) onglet.versUrl(res.url);
+            else onglet.annuler();
+        } finally {
+            fermer();
+        }
     });
 
     document.getElementById('btn-generate-planning').addEventListener('click', async () => {
@@ -339,9 +366,15 @@ document.addEventListener('DOMContentLoaded', () => {
             inputs: inputs
         };
         const onglet = ouvrirOngletDifferé();
-        const res = await apiCall('/api/generate_planning', 'POST', data);
-        if (res && res.url) onglet.versUrl(res.url);
-        else onglet.annuler();
+        const fermer = afficherChargement('Génération du planning',
+                                          'Optimisation des affectations — quelques secondes');
+        try {
+            const res = await apiCall('/api/generate_planning', 'POST', data);
+            if (res && res.url) onglet.versUrl(res.url);
+            else onglet.annuler();
+        } finally {
+            fermer();
+        }
     });
 
     // === INTERIM ===
