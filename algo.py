@@ -6,7 +6,7 @@ import database as db
 # Version de l'algorithme. Affichee dans le badge de l'interface : comme elle est
 # lue depuis CE module, elle atteste que le algo.py charge en memoire est bien le
 # bon. A incrementer a chaque modification de comportement.
-VERSION = "2.7"
+VERSION = "2.8"
 
 TIME_STEP = 15
 MARGE_MISSION_PAUSE_MIN = 30
@@ -728,7 +728,18 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
                     if longueur >= 8: 
                         candidats_disponibles.append((nom, longueur))
                         
-            candidats_disponibles.sort(key=lambda x: (1 if _cle_matche("yacine", x[0]) else 0, -x[1], x[0]))
+            # Le closer est designe AVANT le CLS de journee, et il en est ensuite
+            # exclu. Retenir la personne la plus disponible privait donc le CLS de
+            # journee de son meilleur titulaire, qui se retrouvait morcele en blocs
+            # de 45 ou 75 min. Tenir jusqu'a la fermeture suffit : a partir de la,
+            # on prefere celui qui est le MOINS present avant 17h.
+            def disponibilite_avant_le_soir(nom):
+                return sum(1 for j in range(start_soir_idx) if presence[nom][j])
+
+            candidats_disponibles.sort(
+                key=lambda x: (1 if _cle_matche("yacine", x[0]) else 0,
+                               disponibilite_avant_le_soir(x[0]),
+                               -x[1], x[0]))
 
             if not candidats_disponibles:
                 for nom in employes_presents:
