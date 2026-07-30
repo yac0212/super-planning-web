@@ -6,7 +6,7 @@ import database as db
 # Version de l'algorithme. Affichee dans le badge de l'interface : comme elle est
 # lue depuis CE module, elle atteste que le algo.py charge en memoire est bien le
 # bon. A incrementer a chaque modification de comportement.
-VERSION = "2.6"
+VERSION = "2.7"
 
 TIME_STEP = 15
 MARGE_MISSION_PAUSE_MIN = 30
@@ -683,11 +683,12 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
 
     # --- ÉTAPE : PRIORITÉ ABSOLUE CLS LE DIMANCHE ---
     if est_dimanche:
-        # Le dimanche, on commence à 09h30 (index 2) jusqu'à 13h00 (index 16).
-        # On divise en deux shifts égaux de 1h45 (7 créneaux de 15min chacun).
-        # Shift 1 : 09h30 -> 11h30 (Index 2, longueur 7)
-        # Shift 2 : 11h30 -> 13h15 (Index 9, longueur 7)
-        for index_depart, nb_creneaux in [(2, 8), (9, 8)]:
+        # Le dimanche, on commence à 09h30 (index 2) jusqu'à 13h00.
+        # Shift 1 : 09h30 -> 11h15 (index 2, longueur 7)
+        # Shift 2 : 11h15 -> 13h15 (index 9, longueur 8)
+        # Le shift 1 faisait 8 créneaux et couvrait donc l'index 9 : les deux
+        # titulaires se retrouvaient simultanément sur la mission.
+        for index_depart, nb_creneaux in [(2, 7), (9, 8)]:
             candidats_cls = []
             for nom in employes_presents:
                 # Vérifier si l'employé est autorisé et disponible
@@ -763,9 +764,19 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
                 candidats_disponibles.sort(key=lambda x: (1 if x[1] < 8 else 0,
                                                           5000 if _cle_matche("yacine", x[0]) else 0,
                                                           x[0]))
-                if candidats_disponibles: 
-                    assigner_tache(candidats_disponibles[0][0], "CLS", i, min(candidats_disponibles[0][1], 8))
-                    compteur_cls[candidats_disponibles[0][0]] += 1
+                if candidats_disponibles:
+                    # Ne pas empieter sur un CLS deja pose. La boucle interdit de
+                    # DEMARRER apres 17h, mais un bloc lance a 16h15 courait
+                    # jusqu'a 18h15 et doublonnait avec le closer du soir.
+                    prochain_cls = next(
+                        (j for j in range(i + 1, len(slots))
+                         if any(matrice_planning[j][x] == "CLS"
+                                for x in range(len(employes_presents)))),
+                        len(slots))
+                    longueur = min(candidats_disponibles[0][1], 8, prochain_cls - i)
+                    if longueur > 0:
+                        assigner_tache(candidats_disponibles[0][0], "CLS", i, longueur)
+                        compteur_cls[candidats_disponibles[0][0]] += 1
 
     # --- ETAPE 1 : LES PAUSES ---
     slots_pause_matin = math.ceil((minutes_matin + MARGE_MISSION_PAUSE_MIN) / 15)
