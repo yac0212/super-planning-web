@@ -6,7 +6,7 @@ import database as db
 # Version de l'algorithme. Affichee dans le badge de l'interface : comme elle est
 # lue depuis CE module, elle atteste que le algo.py charge en memoire est bien le
 # bon. A incrementer a chaque modification de comportement.
-VERSION = "2.4"
+VERSION = "2.5"
 
 TIME_STEP = 15
 MARGE_MISSION_PAUSE_MIN = 30
@@ -465,10 +465,20 @@ def optimiser_planning(matrice, slots, employes_presents, map_employes,
         if len(suite) < 2:
             return None
         k = alea.randrange(1, len(suite))
-        absorbant, absorbe, debut = suite[k - 1][0], suite[k][0], suite[k][1]
-        fin = debut
-        while fin < nb_slots and occupant[fin] == absorbe:
-            fin += 1
+        # Deux sens possibles. Vers l'avant : le titulaire precedent reprend le
+        # poste du suivant. Vers l'arriere : le suivant remonte sur le poste du
+        # precedent — c'est le cas "Laura aurait pu prendre C2 une heure plus tot",
+        # impossible a produire tant que l'absorption etait unidirectionnelle.
+        if alea.random() < 0.5:
+            absorbant, absorbe, debut = suite[k - 1][0], suite[k][0], suite[k][1]
+            fin = debut
+            while fin < nb_slots and occupant[fin] == absorbe:
+                fin += 1
+        else:
+            absorbant, absorbe, debut = suite[k][0], suite[k - 1][0], suite[k - 1][1]
+            fin = debut
+            while fin < nb_slots and occupant[fin] == absorbe:
+                fin += 1
         nom_a = employes_presents[absorbant]
         for i in range(debut, fin):
             if not presence[nom_a][i] or matrice_courante[i][absorbant] in ("CLS", "PAUSE"):
