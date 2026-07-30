@@ -3,6 +3,11 @@ from datetime import datetime, timedelta
 import os
 import database as db
 
+# Version de l'algorithme. Affichee dans le badge de l'interface : comme elle est
+# lue depuis CE module, elle atteste que le algo.py charge en memoire est bien le
+# bon. A incrementer a chaque modification de comportement.
+VERSION = "2.1"
+
 TIME_STEP = 15
 MARGE_MISSION_PAUSE_MIN = 30
 BLACKLIST_CLS_PERMANENT = ["jean marc", "jessica", "emmanuel"]

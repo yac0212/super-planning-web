@@ -143,7 +143,8 @@ def serve_files(type_dir, filename):
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    # version lue depuis algo.py : le badge reflete le module reellement charge
+    return render_template('index.html', version_algo=algo.VERSION)
 
 # === EMPLOYEES ===
 @app.route('/api/employees', methods=['GET'])
