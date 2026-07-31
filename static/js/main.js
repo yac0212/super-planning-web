@@ -313,10 +313,32 @@ document.addEventListener('DOMContentLoaded', () => {
         return () => { clearInterval(chrono); voile.remove(); };
     }
 
-    function ouvrirOngletDifferé() {
+    function ouvrirOngletDifferé(titre, sousTitre) {
         const onglet = window.open('', '_blank');
         if (onglet) {
-            onglet.document.write('<p style="font-family:sans-serif;padding:2rem">Génération en cours…</p>');
+            // L'onglet est ouvert des le clic, avant l'appel reseau : il reste
+            // vide plusieurs secondes. On y ecrit la meme attente que sur la page
+            // principale plutot qu'un about:blank avec une ligne de texte.
+            onglet.document.write(`<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<title>${titre}…</title><style>
+  html,body{height:100%;margin:0}
+  body{display:flex;align-items:center;justify-content:center;
+       font-family:'Poppins',system-ui,sans-serif;background:#14161a;color:#fff}
+  .b{text-align:center;padding:34px 46px}
+  .a{width:46px;height:46px;margin:0 auto 18px;border:4px solid rgba(255,255,255,.16);
+     border-top-color:#4ade80;border-radius:50%;animation:r .85s linear infinite}
+  @keyframes r{to{transform:rotate(360deg)}}
+  .t{font-size:17px;font-weight:600;margin-bottom:6px}
+  .s{font-size:13px;opacity:.7}
+  .c{margin-top:14px;font-size:13px;color:#4ade80;font-variant-numeric:tabular-nums}
+  @media (prefers-reduced-motion:reduce){.a{animation-duration:2.4s}}
+</style></head><body><div class="b"><div class="a"></div>
+<div class="t">${titre}</div><div class="s">${sousTitre}</div>
+<div class="c" id="c">0,0 s</div></div>
+<script>var d=Date.now();setInterval(function(){
+  document.getElementById('c').textContent=((Date.now()-d)/1000).toFixed(1).replace('.',',')+' s';},100);
+<\/script></body></html>`);
+            onglet.document.close();
         }
         return {
             versUrl(url) {
@@ -339,7 +361,8 @@ document.addEventListener('DOMContentLoaded', () => {
             date: dateStr,
             inputs: inputs
         };
-        const onglet = ouvrirOngletDifferé();
+        const onglet = ouvrirOngletDifferé('Calcul de la feuille de pauses',
+                                           'Répartition des missions en cours');
         const fermer = afficherChargement('Calcul de la feuille de pauses',
                                           'Répartition des missions en cours');
         try {
@@ -365,7 +388,8 @@ document.addEventListener('DOMContentLoaded', () => {
             date: dateStr,
             inputs: inputs
         };
-        const onglet = ouvrirOngletDifferé();
+        const onglet = ouvrirOngletDifferé('Génération du planning',
+                                           'Optimisation des affectations — quelques secondes');
         const fermer = afficherChargement('Génération du planning',
                                           'Optimisation des affectations — quelques secondes');
         try {
