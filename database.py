@@ -48,8 +48,32 @@ def init_db():
     cur.execute('''CREATE TABLE IF NOT EXISTS compteur_missions (nom TEXT PRIMARY KEY, total INTEGER)''')
     cur.execute('''CREATE TABLE IF NOT EXISTS sauvegarde_historique (date_str TEXT, nom TEXT, ms TEXT, me TEXT, aes TEXT, aee TEXT)''')
     cur.execute('''CREATE TABLE IF NOT EXISTS demandes_interim (id INTEGER PRIMARY KEY AUTOINCREMENT, absent TEXT, date_creation TEXT, dates_resume TEXT, grille_data TEXT)''')
+    migrer_schema(cur)
     conn.commit()
     conn.close()
+
+# Colonnes ajoutees apres la mise en service. CREATE TABLE IF NOT EXISTS ne
+# modifie PAS une table existante : sur une base creee avant ces ajouts, la
+# lecture fonctionne mais l'ajout et la modification d'un salarie echouent avec
+# "no such column: heures_contrat", et l'interface recoit une page d'erreur HTML
+# au lieu de JSON.
+COLONNES_AJOUTEES = [
+    ("heures_contrat",  "REAL DEFAULT 35.0"),
+    ("type_contrat",    "TEXT DEFAULT 'CDI'"),
+    ("forme_caisse",    "BOOLEAN DEFAULT 1"),
+    ("forme_cls",       "BOOLEAN DEFAULT 0"),
+    ("articles_minute", "REAL DEFAULT 0.0"),
+    ("note_manager",    "REAL DEFAULT 5.0"),
+    ("repos_fixes",     "TEXT DEFAULT ''"),
+]
+
+def migrer_schema(cur):
+    """Ajoute les colonnes manquantes a la table employes, sans toucher aux
+    donnees existantes. Idempotent : relancable a chaque demarrage."""
+    existantes = {ligne[1] for ligne in cur.execute("PRAGMA table_info(employes)")}
+    for nom_colonne, definition in COLONNES_AJOUTEES:
+        if nom_colonne not in existantes:
+            cur.execute(f"ALTER TABLE employes ADD COLUMN {nom_colonne} {definition}")
 
 init_db()
 

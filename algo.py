@@ -6,7 +6,7 @@ import database as db
 # Version de l'algorithme. Affichee dans le badge de l'interface : comme elle est
 # lue depuis CE module, elle atteste que le algo.py charge en memoire est bien le
 # bon. A incrementer a chaque modification de comportement.
-VERSION = "2.9"
+VERSION = "3.0"
 
 TIME_STEP = 15
 MARGE_MISSION_PAUSE_MIN = 30
