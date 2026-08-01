@@ -1339,4 +1339,365 @@ de base · `ae5efbc` window.open avant await · `762d2a2` barre d'outils restaur
 non suivis) et était absent des trois branches. Restauré à la racine cette session.
 **Le commiter pour ne plus le perdre.**
 
+### Session 2026-08-01 — Le plafond du solveur, et le ménage dans les règles
+
+Point de départ : « le solveur que nous utilisons est-il bon ? ». La réponse a occupé
+toute la session et a fait abandonner un chantier.
+
+#### 1. Il n'y a jamais eu de solveur
+
+`requirements.txt` ne contient que Flask et gunicorn. Pas d'OR-Tools, pas de PuLP.
+Le seul OR-Tools du projet est le stub vide `generer_horaires_mensuels()`
+([algo.py:1153](algo.py:1153)), corps `pass`, jamais écrit.
+
+Ce qui tourne : un glouton chronologique écrit à la main (ETAPE 0 à 3) suivi d'un recuit
+simulé également écrit à la main (ETAPE 4).
+
+#### 2. Rendement mesuré du recuit — il ne sert presque à rien
+
+Instrumentation via un espion sur `evaluer_planning()`, qui n'est appelé que sur les
+propositions valides. Sur 60 000 essais et 4 journées réelles :
+
+```
+60000 essais  ->  ~10000 propositions valides (17 %)  ->  ~700 acceptées (1,2 %)
+```
+
+**83 % du budget est brûlé sur des mouvements qui ne produisent rien** — l'employé et la
+caisse sont tirés au hasard, puis testés, et échouent presque toujours en planning saturé.
+Un recuit sain démarre à 40-80 % d'acceptation.
+
+Gain réel de la phase d'optimisation sur 4 journées : **5 relèves évitées sur 99**.
+C'est le glouton qui produit la qualité.
+
+Autres constats : le budget n'est pas monotone (20 000 essais donnaient parfois un moins
+bon résultat que 5 000, la température étant calée sur `nb_essais`), et le garde-fou de
+30 s coupait avant le budget sur les gros réglages.
+
+#### 3. Le prototype CP-SAT, et les trois façons de compter une relève
+
+[solveur_cpsat.py](solveur_cpsat.py) a été écrit pour remplacer les ETAPE 3 et 4, en
+gardant les missions produites en amont. **Trois formulations du comptage des relèves ont
+été essayées, une seule est juste** :
+
+| formulation | défaut |
+|---|---|
+| nombre de blocs | facture une relève fantôme quand une caisse est laissée vide puis reprise par la **même** personne |
+| nombre de personnes distinctes | rate le cas A → B → A, qui fait deux relèves avec deux personnes |
+| **titulaire suivi dans le temps** | **juste** — variable entière par caisse et par créneau, qui **persiste** quand la caisse se vide |
+
+La bonne version coûte 616 variables au lieu de 14 000.
+
+Deux autres pièges rencontrés :
+- **sans planning de départ**, CP-SAT n'avait pas fini d'ouvrir les caisses au bout de
+  20 s : couverture 15 au lieu de 88, 108 anomalies. Il faut lui passer le glouton comme
+  indice (`AddHint`).
+- **une PAUSE coupait le bloc** dans le modèle, alors que `evaluer_planning()` la traverse.
+  Corrigé par une table statique de créneaux précédents/suivants pertinents — les missions
+  étant figées, c'est calculable avant résolution.
+
+#### 4. 🔴 LA MESURE QUI A TOUT DÉCIDÉ — le glouton est déjà à l'optimum
+
+Question jamais posée jusque-là : **combien reste-t-il à gagner ?** On optimisait à
+l'aveugle. Réponse obtenue en réduisant l'instance jusqu'à ce que CP-SAT **prouve**
+l'optimalité (statut `OPTIMAL`, pas `FEASIBLE`) :
+
+| fenêtre | créneaux | glouton | optimum **prouvé** | temps |
+|---|---|---|---|---|
+| 09:00–09:45 | 4 | 0 relève | **0** | 0,6 s |
+| 09:00–10:15 | 6 | 0 | **0** | 1,6 s |
+| 09:00–10:45 | 8 | 0 | **1** | 12 s |
+| 09:00–11:45 | 12 | 1 | **1** | 29 s |
+
+Sur la fenêtre de 8 créneaux, l'optimum a même **une relève de plus** que le glouton : il
+l'échange contre de la couverture, ce qui est le bon arbitrage.
+
+Journée entière, 900 secondes de CP-SAT :
+
+```
+glouton :  22 relèves, couverture 427
+cpsat   :  22 relèves, couverture 424   (FEASIBLE, écart 3,37 % à la borne)
+```
+
+**L'écart de 3,37 % n'est pas de la marge de progression : c'est une borne molle.** Trois
+méthodes indépendantes — glouton, recuit, CP-SAT — convergent vers le même plateau.
+
+➡️ **Chantier CP-SAT arrêté.** `solveur_cpsat.py` est conservé comme **instrument de mesure
+du plafond**, pas comme moteur. Le relancer avant d'avoir une raison nouvelle serait perdre
+du temps : la question « peut-on faire mieux sur l'affectation des caisses ? » a été posée
+et la réponse est non.
+
+#### 5. CP-SAT n'est pas reproductible en multi-fils
+
+Mesuré sur le même jour résolu trois fois :
+
+```
+budget déterministe 20  : 15 puis 10 cellules différentes
+budget déterministe 40  : 19 puis 49
+budget déterministe 80  : 48 puis 41
+```
+
+`max_deterministic_time` **n'est pas respecté** : on demande 20, il en consomme 70 à 125,
+et jamais la même quantité. Seul `num_workers=1` est documenté comme déterministe.
+
+⚠️ Devenu sans objet : **l'utilisateur ne veut pas de reproductibilité.** Voir § 7.
+
+#### 6. Inventaire des règles — [REGLES_METIER.md](REGLES_METIER.md)
+
+Document créé cette session par lecture intégrale de `algo.py` et `database.py`, avec
+vérification de chaque nom en dur contre la table `employes`. **33 règles** : 12 dures,
+12 souples, 9 nominatives, chacune avec son identifiant et sa ligne source.
+
+Découvertes :
+- `BLACKLIST_CLS_PERMANENT` était **entièrement redondante** avec `restriction_cls`, et sa
+  clé `"emmanuel"` ne correspondait à **personne** — le filtre exige des mots entiers, et
+  `emmanuel ≠ emmanuelle`.
+- La pénalité de `"léandre"` ne visait plus aucun employé.
+- La table `employes` a **14 colonnes, l'algorithme en lisait 4**.
+- `forme_cls` était renseignée mais ignorée, et **contredisait** `restriction_cls` sur
+  CADEAU Emmanuelle (interdite de CLS *et* formée au CLS).
+
+Huit décisions ont été arbitrées par l'utilisateur, consignées au § 10 de ce document.
+
+#### 7. Deux règles du projet levées par l'utilisateur
+
+- **Le déterminisme n'est pas souhaité.** Que deux générations du même jour diffèrent ne
+  gêne pas — il trouve même ça **préférable** : regénérer, c'est obtenir une autre
+  proposition. Une partie des contraintes bâties dessus (budget en essais, `num_workers=1`,
+  graine fixe) n'avait donc pas lieu d'être.
+- **Ne plus jamais lancer de sous-agents ni de Workflow.** Un Workflow de 7 agents lancé
+  pour explorer des variantes de modèle CP-SAT a consommé **524 000 tokens et rendu zéro
+  résultat** — les sept ont heurté la limite de session avant de terminer.
+
+#### 8. Version 3.1 — équité des missions et fin des noms en dur
+
+**Le compteur de missions se corrompait à l'usage.** `run_algo` appelait
+`db.inc_mission_score()` **pendant** le calcul, depuis la boucle de sélection des pauses.
+Générer cinq brouillons du même jour comptait cinq journées de mission à la même personne,
+qui se retrouvait ensuite écartée des pauses pour du travail jamais fait.
+
+Correction : scores lus **une seule fois** en début de génération, missions accumulées en
+mémoire, écrites **une seule fois** à la fin dans une table `historique_missions` remplacée
+par date. Vérifié : quatre générations du même jour laissent toujours 7 missions en base.
+
+`compteur_missions` était par ailleurs un **cumul à vie sans dates** (15 missions pour l'une
+contre 1 pour un arrivant récent, donc choisi en priorité pendant des mois). Remplacé par
+une **fenêtre glissante de 30 jours**. Aucun historique n'existait à récupérer : le planning
+généré n'est stocké nulle part, `sauvegarde_historique` ne garde que les horaires d'entrée.
+La fenêtre repart donc de zéro.
+
+**`algo.py` ne contient plus aucun nom de personne.** Les huit règles nominatives passent
+dans trois colonnes : `caisses_evitees` (format `"1:5000,2:3000"`), `evite_cls` (préférence,
+distincte de l'interdiction `restriction_cls`), `evite_pause`. Une **reprise de données**
+les repose au premier démarrage, une seule fois, tracée dans une table `parametres` — sans
+quoi les colonnes se créaient vides et le comportement changeait silencieusement.
+
+Non-régression sur 4 journées réelles : relèves 102 → 96, postes < 1h30 20 → 13,
+couverture 830 → 833, **0 anomalie**.
+
+#### 9. Une recommandation que j'ai dû retirer
+
+J'ai proposé de descendre `ESSAIS_OPTIM` de 60 000 à 20 000 pour réduire l'attente.
+Mesuré : cela coûte **11 créneaux de couverture et 4 postes courts**. La proposition venait
+d'un test de convergence qui mesurait le **coût interne** de l'optimiseur, pas les critères
+métier. Le garde-fou est écrit dans le code pour que personne ne refasse l'erreur.
+
+---
+
+### Session 2026-08-02 — Ce que l'algorithme ne savait pas voir
+
+L'utilisateur a fourni **trois paires de plannings** (généré / corrigé à la main) avec
+l'explication de chaque correction. Chaque correction est un contre-exemple étiqueté : la
+recherche étant saturée (§ 4 de la session précédente), l'écart ne peut venir que de la
+fonction de coût ou d'une règle absente.
+
+#### 1. Un bug de mesure d'abord
+
+`extraire.py` lisait le HTML **brut** des cellules retapées à la main dans le navigateur,
+qui contiennent de la mise en forme : `<span style="font-size: 9px;">C2</span>`. Le libellé
+lu valait donc le HTML complet, et l'affectation passait pour inexistante. Résultat faussé :
+C1+C2 mesurée à 76 au lieu de 88 sur le 03/08.
+
+Corrigé par un nettoyage des balises. **Le diagnostic avait failli être établi sur des
+données corrompues.**
+
+#### 2. La règle qui manquait — la passation fluide
+
+Formulée par l'utilisateur : *« ça ne pose pas de problème que les caisses se chevauchent
+sur 15 min, car les employés ferment leur caisse 15 min avant la fin de leur journée. »*
+
+Quelqu'un qui tient C5 jusqu'à 18h15 se libère vers 18h05. On peut donc installer son
+remplaçant **dès le créneau 18h00-18h15**. Vérifié dans sa correction du 03/08 :
+
+```
+14:00  C5   Cecilia sort, Alexandra entre
+14:45  C13  Quinson sort, Diariata entre
+17:15  C5   Alexandra sort, Ethan entre
+```
+
+À chaque fois, le dernier créneau du sortant est le premier de l'entrant. **L'algorithme
+l'interdisait** : une caisse ne pouvait avoir qu'un titulaire par créneau.
+
+Implémenté en phase B de l'ETAPE 3 : une caisse est pourvoyable si son titulaire quitte le
+site au créneau suivant. Le chevauchement ne dure **jamais plus d'un créneau**.
+
+Mesure sur 6 journées : **+13 créneaux sur C1/C2, +20 sur C13/C14**, 4 employés inoccupés
+de moins. Mais **+5 relèves** — la passation devenant bon marché, l'algorithme en fait
+davantage. D'où le point suivant, indissociable.
+
+#### 3. Le poids de la relève, 60 → 120
+
+Diagnostic du 01/08 par `bancs/ecart_manuel.py` : la correction manuelle était jugée
+**pire de 1314 points** par la fonction de coût, alors qu'elle est meilleure en pratique.
+L'utilisateur y échange **3 créneaux de couverture de caisse du fond contre 3 relèves
+évitées** — arbitrage que le poids de 60 refusait.
+
+Les deux journées corrigées montrent le même motif : **sacrifier le fond, jamais les
+caisses critiques.**
+
+Balayage sur 6 journées :
+
+| poids relève | relèves | C1+C2 | C13+C14 | fond |
+|---|---|---|---|---|
+| 60 | 122 | 426 | **417** | 884 |
+| **120** | **110** | 423 | 410 | 891 |
+| 180 | 105 | 424 | 402 | 908 |
+
+180 gagne encore des relèves mais ferme C13/C14, qui comptent plus que les caisses du fond.
+`couverture_base` n'a quasiment aucun effet (testé à 25 et 40).
+
+⚠️ **Effet de bord corrigé dans la foulée** : avec la relève à 120, fermer C2 un quart
+d'heure devenait **rentable** pour l'optimiseur global — la fermeture ne coûtait que 1000
+points. Une anomalie est apparue sur le 07/03 (`12:30 C2 fermée alors que C[5,13,14] sont
+tenues`), produite par l'ETAPE 4, le glouton étant propre. `c1c2_fermee` porté à **5000** :
+ces caisses relèvent d'une règle absolue, le tarif doit dépasser tout gain atteignable par
+un mouvement, sinon il n'est qu'un prix à payer.
+
+#### 4. Version 3.3 — le couplage missions / caisses
+
+Constat sur le 03/08 : la correction manuelle **changeait le titulaire de la mission pause
+de l'après-midi** (Cécilia au lieu de Laura), ce qui libérait Diariata pour tenir C13 tout
+l'après-midi et évitait de déplacer Jean-Marc deux fois et Christelle une fois.
+
+**L'algorithme ne pouvait structurellement pas trouver ça** : les missions sont posées à
+l'ETAPE 1 puis figées, les caisses se décident à l'ETAPE 3. Les deux décisions sont pourtant
+couplées.
+
+Solution retenue — la plus simple, sans refonte : le planning **entier** est construit pour
+neuf combinaisons de titulaires (3 le matin × 3 l'après-midi) et le meilleur est retenu.
+Implémenté par **auto-appel récursif** de `run_algo` avec `explorer_pauses=False`, ce qui
+évite de découper la fonction.
+
+Deux réglages ont demandé plusieurs mesures :
+
+**Le budget de chaque exploration.** Classées sur le glouton seul, les variantes étaient mal
+départagées : 160 relèves contre 154 sans exploration du tout. L'optimiseur global rebrasse
+trop pour que le point de départ soit un bon prédicteur. Chaque exploration reçoit donc un
+vrai budget, `essais_optim // 20`.
+
+**Le critère de classement.** Au seul coût global, une fermeture de C1/C2 rachetée par de la
+couverture ailleurs passait au travers — 1000 points ne pèsent rien face aux récompenses
+cumulées. Le nombre de créneaux C1/C2 fermés est devenu le **critère prioritaire**, avant le
+coût.
+
+Arbitrage assumé, mesuré sur 10 journées réelles :
+
+| | sans exploration | avec |
+|---|---|---|
+| relèves | **154** | 160 |
+| C13 + C14 | 557 | **561** |
+| employés inoccupés | 15 | **8** |
+| temps de génération | 12 s | 22 s |
+
+On perd 0,6 relève par jour, on divise par deux les créneaux où quelqu'un reste sans
+affectation pendant qu'une caisse est fermée — l'autre plainte de l'utilisateur.
+`NB_VARIANTES_PAUSE=1` revient au comportement de la 3.2.
+
+#### 5. Résultat face aux corrections manuelles
+
+| | correction manuelle | v3.3 |
+|---|---|---|
+| 01/08 | 19 relèves, C13+C14 = 86 | 19 relèves, C13+C14 = **87** |
+| 03/08 | 14 relèves, C13+C14 = 88 | 14 relèves, C13+C14 = 88 |
+
+L'algorithme **égale les deux corrections manuelles**, et retrouve seul le changement de
+titulaire de pause du 03/08.
+
+⚠️ **Risque de sur-ajustement à surveiller** : le réglage a été calé sur deux journées que
+l'utilisateur avait corrigées. Sur 10 journées, le bilan est neutre à légèrement négatif sur
+les relèves. Si le terrain donne tort, le curseur à bouger est `NB_VARIANTES_PAUSE`, puis
+`POIDS_RELEVE`.
+
+#### 6. Outillage créé — dossier [bancs/](bancs/)
+
+Les scripts de mesure vivaient dans un dossier temporaire lié à une session, où ils auraient
+disparu. Déplacés dans le projet avec un [LISEZMOI](bancs/LISEZMOI.md).
+
+| Script | Rôle |
+|---|---|
+| `bench_cpsat.py` | compare glouton / recuit / CP-SAT sur des journées réelles — le juge de paix |
+| `plafond.py` | réduit l'instance jusqu'à obtenir un optimum **prouvé** |
+| `ecart_manuel.py` | confronte un planning généré à sa correction manuelle et tranche : **coût faux** ou **recherche défaillante** |
+| `trouver_corrections.py` | repère les plannings sauvegardés qui diffèrent d'une régénération |
+| `effets_bord.py` | démontre le cumul du compteur de missions |
+| `determinisme_cpsat.py` | reproductibilité de CP-SAT sous différents budgets |
+| `reel.py`, `suite.py` | non-régression sur journées réelles et 11 scénarios |
+
+`bancs/pristine.db` est une copie de la production : couverte par `*.db` dans `.gitignore`,
+**jamais versionnée**.
+
+#### 7. Base de production rapatriée en local
+
+L'ancienne base de développement datait de deux jours et divergeait. Récupérée par
+`scp` depuis AlwaysData : **32 employés, 180 journées saisies**. L'ancienne est sauvegardée
+dans `bancs/sauvegarde_dev_avant_prod_20260801.db`.
+
+Confirmation au passage que **le déploiement de la 3.1 est sain** : marqueur
+`preferences_semees = 4`, les quatre préférences en place, `historique_missions` se remplit
+avec un seul jeu par date.
+
+⚠️ **Piège de l'interface** : chaque case d'un planning affiché est `contenteditable`
+([app.py:497](app.py:497)), et « Enregistrer en ligne » **écrase le fichier original**.
+Un seul fichier par date : impossible de savoir depuis le disque si le contenu est la sortie
+brute ou une correction manuelle. Toujours télécharger la version brute avec « Sauvegarder
+sur mon PC » **avant** de corriger.
+
+#### 8. Vérifications avant déploiement
+
+| | |
+|---|---|
+| 11 scénarios de synthèse | **0 anomalie** (28 pour l'algorithme d'origine) |
+| 10 journées réelles | **0 anomalie** |
+| Ordre de saisie inversé | résultat identique sur les 11 scénarios |
+| Routes de l'application | 7/7 répondent |
+| Migration depuis une base antérieure | colonnes créées, 4 préférences posées, génération OK |
+
+**Trou de sécurité bouché** : un test de bout en bout a créé un dossier `plannings/` à la
+racine, contenant un planning avec les vrais noms des salariés. Le `.gitignore` ne couvrait
+que `static/plannings/`, or le dossier de sortie suit `DATA_DIR` et peut atterrir ailleurs.
+Motifs remplacés par `plannings/` et `pauses/` **sans préfixe**.
+
+#### 9. Commits (poussés sur `master` ET `feature-wfm`)
+
+`10e7f65` équité des missions + sortie des noms du code · `93de52a` inventaire des règles
+métier et suivi · `f5299a7` bancs d'essai et modèle CP-SAT de référence ·
+`92473aa` passation fluide, relèves mieux valorisées, choix de la pause
+
+#### 10. Reste à faire
+
+- **Les trois nouvelles colonnes ne sont pas dans l'onglet Équipe.** `caisses_evitees`,
+  `evite_cls` et `evite_pause` se posent automatiquement mais ne sont **pas modifiables
+  depuis l'application**. À exposer.
+- **Supprimer les colonnes mortes** `articles_minute`, `note_manager`, `forme_cls`
+  (décision 6 de REGLES_METIER.md) — touche `database.py`, `app.py`, `main.js` et les deux
+  modales de `index.html`. **Après sauvegarde de la production.**
+- **La mission pause reste structurellement sous-couverte** — mis de côté à la demande.
+- 🔴 **Sécurité, jamais traité** : le dépôt GitHub est public et
+  [app.py:12](app.py:12) contient le mot de passe administrateur en clair, avec la clé de
+  session juste au-dessus. Le changer n'effacerait pas l'historique ; rendre le dépôt privé
+  prend une minute.
+- **Le chantier amont** : les horaires de présence sont produits par Planexa sans aucun
+  regard sur les besoins en caisse. Un prompt de constitution de dossier pour la direction a
+  été rédigé — [PROMPT_DOSSIER_DIRECTION.md](PROMPT_DOSSIER_DIRECTION.md), non versionné
+  car le dépôt est public. C'est là que se trouve la vraie marge : l'aval est prouvé saturé.
+
 <!-- Ajouter les prochaines sessions au-dessus de cette ligne, format "### Session AAAA-MM-JJ" -->
