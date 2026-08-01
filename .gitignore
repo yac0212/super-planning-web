@@ -2,7 +2,10 @@ __pycache__/
 *.pyc
 .env
 *.db
-static/plannings/
-static/pauses/
+# Les plannings generes portent les noms des salaries : jamais versionnes.
+# Motifs sans prefixe, car le dossier de sortie suit DATA_DIR et peut donc
+# se retrouver ailleurs que sous static/.
+plannings/
+pauses/
 temp/
 .DS_Store

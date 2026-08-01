@@ -6,7 +6,7 @@ import database as db
 # Version de l'algorithme. Affichee dans le badge de l'interface : comme elle est
 # lue depuis CE module, elle atteste que le algo.py charge en memoire est bien le
 # bon. A incrementer a chaque modification de comportement.
-VERSION = "3.1"
+VERSION = "3.3"
 
 TIME_STEP = 15
 MARGE_MISSION_PAUSE_MIN = 30
@@ -33,6 +33,31 @@ DUREE_MIN_BLOC_CAISSE = 2  # 30 min
 # Quand le titulaire de la mission pause part en coupure ou termine sa journee,
 # on ne mobilise pas quelqu'un d'autre pour un reliquat trop court.
 RELAI_PAUSE_MIN = 3  # 45 min
+# Un hote ferme sa caisse une dizaine de minutes avant la fin de sa journee : on
+# peut donc installer son remplacant des son dernier creneau. La caisse est alors
+# tenue par deux personnes sur CE SEUL creneau, et la passation est fluide.
+# Mis a 0 pour retrouver l'ancien comportement et mesurer l'ecart.
+PASSATION_FLUIDE = os.environ.get("PASSATION_FLUIDE", "1") == "1"
+# Nombre de titulaires de mission pause essayes, matin et apres-midi. Le planning
+# complet est construit pour chaque combinaison, soit NB_VARIANTES_PAUSE au carre
+# explorations. 1 desactive l'exploration et retrouve l'ancien comportement.
+#
+# ARBITRAGE ASSUME, mesure sur 10 journees reelles (sans / avec exploration) :
+#   releves          154 / 160     <- on en perd 6, soit 0,6 par jour
+#   C13 + C14        557 / 561
+#   employes inoccupes 15 / 8      <- divise par deux
+#   temps de generation 12 s / 22 s
+# L'exploration coute donc quelques releves mais supprime la moitie des creneaux
+# ou quelqu'un reste sans affectation pendant qu'une caisse est fermee. Elle
+# reproduit par ailleurs a l'identique les deux journees corrigees a la main par
+# l'utilisateur les 01/08 et 03/08 : 19 et 14 releves, memes caisses critiques.
+# Mettre NB_VARIANTES_PAUSE=1 pour revenir au comportement de la 3.2.
+NB_VARIANTES_PAUSE = int(os.environ.get("NB_VARIANTES_PAUSE", "3"))
+# Diviseur du budget d'optimisation alloue a chaque exploration. Plus il est bas,
+# plus le classement des variantes est fiable, plus la generation est longue.
+# 1/20 est le compromis retenu : 1/10 gagne une releve de plus mais fait passer la
+# generation a 31 s, 1/30 est plus rapide mais degrade le classement.
+ESSAIS_EXPLORATION = int(os.environ.get("ESSAIS_EXPLORATION", "20"))
 
 # --- PREFERENCES PAR PERSONNE ---
 # Elles vivaient dans le code, sous forme de noms en dur. Elles sont maintenant
@@ -138,13 +163,26 @@ TEMPS_MAX_OPTIM_S = 30.0
 # Couts (plus c'est haut, plus c'est penalisant). Les valeurs negatives sont des
 # recompenses. C'est ici que se regle l'arbitrage metier.
 POIDS = {
-    "c1c2_fermee":       1000,  # par creneau ou C1/C2 ferme alors qu'on pouvait la tenir
+    # Par creneau ou C1/C2 ferme alors qu'on pouvait la tenir. Porte de 1000 a
+    # 5000 le 2026-08-01, en meme temps que la releve passait a 120 : avec
+    # l'ancien tarif, l'optimiseur global fermait C2 un quart d'heure pour eviter
+    # quelques releves, l'operation devenant rentable. Ces caisses relevent d'une
+    # regle absolue — le tarif doit depasser tout gain atteignable par un
+    # mouvement, sinon il n'est qu'un prix a payer.
+    "c1c2_fermee":  int(os.environ.get("POIDS_C1C2_FERMEE", "5000")),
     "trou_critique":      300,  # par creneau de trou sur C13/C14 au-dela de TROU_TOLERE
     # Les releves sont facturees de facon PROGRESSIVE : la k-ieme releve sur une
     # meme caisse coute k fois ce montant. Une passation matin/apres-midi reste
     # bon marche, un morcellement en six titulaires devient prohibitif. Sans cette
     # progression, l'optimiseur supprime les releves en figeant tout le monde.
-    "releve":              60,
+    # Releve portee de 60 a 120 le 2026-08-01. L'utilisateur a fourni deux
+    # journees corrigees a la main : sur le 01/08 il echange 3 creneaux de
+    # couverture de caisse du fond contre 3 releves evitees, arbitrage que le
+    # poids de 60 refusait. Mesure sur 6 journees reelles, 60 -> 120 :
+    # releves 122 -> 110, C1/C2 426 -> 423, C13/C14 417 -> 410, fond 884 -> 891.
+    # Au-dela de 120 on continue de gagner des releves, mais en fermant C13/C14 —
+    # ces caisses-la comptent davantage que celles du fond.
+    "releve":     int(os.environ.get("POIDS_RELEVE", "120")),
     "releve_non_alignee": 150,  # supplement si le sortant restait disponible
     "bloc_court":         300,  # poste de moins de DUREE_MIN_CAISSE
     "bloc_isole":         800,  # poste de 15 min
@@ -155,7 +193,7 @@ POIDS = {
     # retrouvait C10, C11 et C12 tenues pendant que C5 et C6 restaient fermees.
     "couverture_c1c2":   -800,  # C1 et C2 : quasiment une contrainte
     "couverture_c13c14": -400,  # C13 et C14 : tres fortement souhaitees
-    "couverture_base":    -40,  # part fixe des autres caisses
+    "couverture_base": -int(os.environ.get("POIDS_COUV_BASE", "40")),  # part fixe des autres caisses
     "couverture_priorite": -12,  # part variable, multipliee par le rang inverse
 }
 
@@ -644,7 +682,16 @@ def get_continuous_block(indices_libres, start_idx):
         curseur += 1
     return compteur
 
-def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
+def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None,
+             variante_pause=(0, 0), ecrire_missions=True, explorer_pauses=True):
+    """variante_pause : rangs du premier titulaire de la mission pause, matin
+    et apres-midi, dans la liste triee des candidats. (0, 0) reprend le meilleur
+    des deux, c'est-a-dire l'ancien comportement.
+
+    explorer_pauses : construit le planning complet pour plusieurs choix de
+    titulaires et garde le meilleur. Voir NB_VARIANTES_PAUSE.
+
+    ecrire_missions : les explorations ne doivent rien ecrire en base."""
     if essais_optim is None:
         essais_optim = ESSAIS_OPTIM
     try: 
@@ -677,8 +724,57 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
             plan_data.append({"nom": nom, "matin": (start_m, end_m), "aprem": (start_a, end_a)})
             employes_presents.append(nom)
     
-    if not employes_presents: 
+    if not employes_presents:
         return {"error": "Aucun employé n'est planifié aujourd'hui."}
+
+    # --- CHOIX DU TITULAIRE DE LA MISSION PAUSE ---
+    # Les missions etaient posees a l'etape 1 puis figees, alors que les caisses
+    # se decident a l'etape 3. Les deux decisions sont pourtant couplees : sur la
+    # journee du 03/08/2026, corrigee a la main par l'utilisateur, confier la
+    # pause de l'apres-midi a quelqu'un d'autre liberait une personne pour tenir
+    # C13 tout l'apres-midi, ce qui evitait de deplacer deux autres employes.
+    # L'algorithme ne pouvait structurellement pas trouver ca.
+    #
+    # On construit donc le planning ENTIER pour plusieurs titulaires possibles et
+    # on garde le meilleur. Les explorations tournent sans optimisation globale
+    # (quelques millisecondes chacune) ; seul le gagnant recoit le budget complet.
+    if explorer_pauses and NB_VARIANTES_PAUSE > 1:
+
+        def creneaux_c1c2_fermees(essai):
+            """C1 et C2 ouvertes sans interruption est une regle ABSOLUE, pas un
+            tarif. Classer les variantes au seul cout global laissait passer une
+            fermeture de C2 rachetee par de la couverture ailleurs : la penalite
+            de 1000 points ne pese rien face aux recompenses cumulees. Ce compte
+            sert donc de critere prioritaire, avant le cout."""
+            M = essai['matrice_planning']
+            nb = len(essai['employes_presents'])
+            return sum(1 for c in CAISSES_ININTERROMPUES
+                       for i in range(len(essai['slots']))
+                       if not any(M[i][x] == f"C{c}" for x in range(nb)))
+
+        meilleure, note_meilleure = (0, 0), None
+        for rang_matin in range(NB_VARIANTES_PAUSE):
+            for rang_aprem in range(NB_VARIANTES_PAUSE):
+                # Chaque exploration recoit un vrai budget d'optimisation, meme
+                # reduit. Classee sur le glouton seul, la meilleure variante
+                # n'etait pas celle qui donnait le meilleur planning FINAL :
+                # l'optimiseur global rebrasse trop pour que le point de depart
+                # soit un bon predicteur. Mesure sur 10 journees, classement au
+                # glouton : 160 releves contre 154 sans exploration du tout.
+                essai = run_algo(date_saisie, inputs_dict, cache_emp,
+                                 essais_optim=essais_optim // ESSAIS_EXPLORATION,
+                                 variante_pause=(rang_matin, rang_aprem),
+                                 ecrire_missions=False, explorer_pauses=False)
+                if "error" in essai:
+                    continue
+                note = (creneaux_c1c2_fermees(essai),
+                        evaluer_planning(essai['matrice_planning'], essai['slots'],
+                                         essai['employes_presents'], essai['emp_map'],
+                                         essai['presence'], cache_emp))
+                if note_meilleure is None or note < note_meilleure:
+                    note_meilleure, meilleure = note, (rang_matin, rang_aprem)
+        variante_pause = meilleure
+        run_algo.derniere_variante_pause = meilleure
 
     slots = generate_timeline()
     matrice_planning = [["" for _ in employes_presents] for _ in slots]
@@ -801,7 +897,8 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
                 compteur_cls[gagnant] += 1
                 closer_assigne = gagnant
                 noter_mission(gagnant, "CLOSER")
-                db.save_historique_fermeture(date_saisie, gagnant)
+                if ecrire_missions:
+                    db.save_historique_fermeture(date_saisie, gagnant)
 
     # --- ETAPE 0.5 : CLS JOURNÉE (SEMAINE) ---
     if not est_dimanche:
@@ -868,7 +965,11 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
                 
             # tri decroissant sur le score, puis nom : departage deterministe
             candidats_disponibles.sort(key=lambda c: (-score_pause(c), c['nom']))
-            gagnant = candidats_disponibles[0]
+            # Le rang n'est decale que pour le PREMIER titulaire : les relais
+            # suivants restent au meilleur candidat, sinon on explorerait un
+            # espace enorme pour un gain nul.
+            rang = variante_pause[0] if premier_titulaire else 0
+            gagnant = candidats_disponibles[min(rang, len(candidats_disponibles) - 1)]
             
             if gagnant["nom"] == closer_assigne and score_pause(gagnant) < 0: 
                 cur_idx += 1
@@ -909,7 +1010,8 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
                 return score + min(c['longueur'], restant) * 10 - scores_missions.get(c['nom'], 0) * 5
                 
             candidats_disponibles.sort(key=lambda c: (-score_pause_a(c), c['nom']))
-            gagnant = candidats_disponibles[0]
+            rang = variante_pause[1] if premier_titulaire else 0
+            gagnant = candidats_disponibles[min(rang, len(candidats_disponibles) - 1)]
             
             if gagnant["nom"] == closer_assigne and score_pause_a(gagnant) < 0: 
                 cur_idx += 1
@@ -1004,8 +1106,27 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
                 del libres[nom]
 
         # --- B. COMBLEMENT ---
+        def part_apres_ce_creneau(nom_t):
+            """Le titulaire quitte-t-il le site au creneau suivant ?
+
+            Un hote ferme sa caisse environ 10 min avant la fin de sa journee :
+            quelqu'un qui tient C5 jusqu'a 18h15 se libere vers 18h05. On peut
+            donc installer le suivant des le creneau 18h00-18h15. La caisse est
+            tenue par deux personnes sur ce seul creneau, et la passation est
+            fluide — au lieu de laisser la caisse vide, ou de faire faire au
+            suivant un quart d'heure ailleurs avant de le deplacer.
+
+            Regle confirmee par l'utilisateur le 2026-08-01, et employee dans ses
+            corrections manuelles (03/08 : C5 a 14h00 et 17h15, C13 a 14h45).
+            Le chevauchement ne dure JAMAIS plus d'un creneau : il n'est ouvert
+            que sur le dernier creneau de presence du sortant.
+            """
+            if not PASSATION_FLUIDE:
+                return False
+            return i + 1 >= len(slots) or not presence[nom_t][i + 1]
+
         for num_caisse in ORDRE_CAISSES:
-            if num_caisse in titulaire:
+            if num_caisse in titulaire and not part_apres_ce_creneau(titulaire[num_caisse]):
                 continue
             candidats = []
             trop_courts = []
@@ -1057,6 +1178,11 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
                 return (penalite, -longueur_c, nom_c)
 
             candidats.sort(key=score_comblement)
+            # Passation fluide : le sortant garde ce creneau, l'entrant le prend
+            # aussi. On n'ouvre le chevauchement que si le remplacant reste
+            # ensuite un vrai poste — sinon on paierait une passation pour rien.
+            if num_caisse in titulaire and candidats[0][1] < DUREE_MIN_BLOC_CAISSE:
+                continue
             elu = candidats[0][0]
             assigner_tache(elu, f"C{num_caisse}", i, 1)
             titulaire[num_caisse] = elu
@@ -1184,7 +1310,8 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
 
     # Ecriture unique, en fin de generation. enregistrer_missions() remplace les
     # lignes de la journee : regenerer dix fois ne cumule plus rien.
-    db.enregistrer_missions(date_saisie, missions_du_jour)
+    if ecrire_missions:
+        db.enregistrer_missions(date_saisie, missions_du_jour)
 
     infos_pauses = f"Mission Pause Matin : {math.ceil((minutes_matin + MARGE_MISSION_PAUSE_MIN)/15)*15} min | Aprem : {math.ceil((minutes_aprem + MARGE_MISSION_PAUSE_MIN)/15)*15} min"
     
@@ -1195,7 +1322,8 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
         "plan_data": plan_data,
         "infos_pauses": infos_pauses,
         "closer_veille": closer_veille,
-        "emp_map": map_employes
+        "emp_map": map_employes,
+        "presence": presence
     }
 # --- PHASE 2 : SOLVEUR WFM (OR-Tools) --- 
 def generer_horaires_mensuels(employes, jours_du_mois):
