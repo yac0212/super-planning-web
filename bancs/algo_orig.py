@@ -1,0 +1,424 @@
+import math
+from datetime import datetime, timedelta
+import os
+import database as db
+
+# L'API get_mission_score/inc_mission_score a ete supprimee de database.py
+# le 2026-08-01 (remplacee par historique_missions). Ce module n'est qu'une
+# reference de comparaison : on neutralise l'equite, elle ne change pas les
+# metriques mesurees (releves, couverture, anomalies).
+def _score_mission(nom):
+    return 0
+
+def _inc_mission(nom):
+    pass
+
+
+TIME_STEP = 15  
+MARGE_MISSION_PAUSE_MIN = 30 
+BLACKLIST_CLS_PERMANENT = ["jean marc", "jessica", "emmanuel"]
+
+HIERARCHIE_PENALITE_C1_C2 = {
+    "léandre": 1000, 
+    "dalya": 2000, 
+    "ethan": 3000, 
+    "yacine": 5000 
+}
+
+HIERARCHIE_PENALITE_C13_C14 = {
+    "yacine": 3000, 
+    "ethan": 3000, 
+    "nathalie": 500
+}
+
+def get_time(string_time):
+    try: 
+        return datetime.strptime(string_time, "%H:%M")
+    except ValueError: 
+        return None
+
+def calc_duration(start_str, end_str):
+    try:
+        t_start = datetime.strptime(start_str, "%H:%M")
+        t_end = datetime.strptime(end_str, "%H:%M")
+        return (t_end - t_start).seconds / 3600, t_end
+    except ValueError: 
+        return 0, None
+
+def is_same_person(nom1, nom2): 
+    return nom1.lower() in nom2.lower() or nom2.lower() in nom1.lower()
+    
+def is_blacklisted(nom): 
+    return any(b in nom.lower() for b in BLACKLIST_CLS_PERMANENT)
+
+def get_penalite(nom, dictionnaire_hierarchie):
+    for nom_cle, valeur in dictionnaire_hierarchie.items(): 
+        if nom_cle in nom.lower(): 
+            return valeur
+    return 0
+
+def generate_timeline():
+    start_time = datetime.strptime("09:00", "%H:%M")
+    end_time = datetime.strptime("20:00", "%H:%M")
+    timeline = []
+    current_time = start_time
+    while current_time < end_time: 
+        timeline.append(current_time.strftime("%H:%M"))
+        current_time += timedelta(minutes=TIME_STEP)
+    return timeline
+
+def get_available_slots_indices(nom, plan_data, slots, matrice, map_employes):
+    indices_libres = []
+    for i, heure_str in enumerate(slots):
+        heure_obj = datetime.strptime(heure_str, "%H:%M")
+        present = False
+        for p in plan_data:
+            if p['nom'] == nom:
+                matin_ok = p['matin'][0] and p['matin'][1] and p['matin'][0] <= heure_obj < p['matin'][1]
+                aprem_ok = p['aprem'][0] and p['aprem'][1] and p['aprem'][0] <= heure_obj < p['aprem'][1]
+                if matin_ok or aprem_ok:
+                    present = True
+        
+        if present and not matrice[i][map_employes[nom]]: 
+            indices_libres.append(i)
+    return indices_libres
+
+def get_continuous_block(indices_libres, start_idx):
+    compteur = 0
+    curseur = start_idx
+    while curseur in indices_libres: 
+        compteur += 1
+        curseur += 1
+    return compteur
+
+def run_algo(date_saisie, inputs_dict, cache_emp):
+    try: 
+        date_obj = datetime.strptime(date_saisie, "%d/%m/%Y")
+    except ValueError: 
+        date_obj = datetime.now()
+        
+    date_hier = (date_obj - timedelta(days=1)).strftime("%d/%m/%Y")
+    est_dimanche = (date_obj.weekday() == 6)
+    
+    closer_veille = db.get_historique_fermeture(date_hier)
+
+    plan_data = []
+    employes_presents = []
+    minutes_matin = 0
+    minutes_aprem = 0
+    
+    # 1. Collecte des données
+    for nom, times in inputs_dict.items():
+        e_m1, e_m2, e_a1, e_a2 = times.get('ms', ''), times.get('me', ''), times.get('aes', ''), times.get('aee', '')
+        start_m, end_m = get_time(e_m1), get_time(e_m2)
+        start_a, end_a = get_time(e_a1), get_time(e_a2)
+        
+        if start_m and end_m: 
+            minutes_matin += ((end_m - start_m).seconds / 3600) * 3
+        if start_a and end_a: 
+            minutes_aprem += ((end_a - start_a).seconds / 3600) * 3
+            
+        if start_m or start_a: 
+            plan_data.append({"nom": nom, "matin": (start_m, end_m), "aprem": (start_a, end_a)})
+            employes_presents.append(nom)
+    
+    if not employes_presents: 
+        return {"error": "Aucun employé n'est planifié aujourd'hui."}
+
+    slots = generate_timeline()
+    matrice_planning = [["" for _ in employes_presents] for _ in slots]
+    map_employes = {nom: index for index, nom in enumerate(employes_presents)}
+    
+    def assigner_tache(nom, tache, start_idx, length):
+        colonne = map_employes[nom]
+        for k in range(start_idx, start_idx + length): 
+            if k < len(slots): 
+                matrice_planning[k][colonne] = tache
+
+    compteur_cls = {nom: 0 for nom in employes_presents}
+    closer_assigne = None
+
+    # --- ÉTAPE : PRIORITÉ ABSOLUE CLS LE DIMANCHE ---
+    if est_dimanche:
+        # Le dimanche, on commence à 09h30 (index 2) jusqu'à 13h00 (index 16).
+        # On divise en deux shifts égaux de 1h45 (7 créneaux de 15min chacun).
+        # Shift 1 : 09h30 -> 11h30 (Index 2, longueur 7)
+        # Shift 2 : 11h30 -> 13h15 (Index 9, longueur 7)
+        for index_depart, nb_creneaux in [(2, 8), (9, 8)]:
+            candidats_cls = []
+            for nom in employes_presents:
+                # Vérifier si l'employé est autorisé et disponible
+                infos = cache_emp.get(nom, {'statut': 'CDI', 'restriction_cls': False, 'restriction_handicap': 'Aucun'})
+                if infos.get('restriction_cls') or is_blacklisted(nom) or compteur_cls[nom] >= 1: 
+                    continue
+                
+                indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
+                if index_depart in indices_libres:
+                    longueur_dispo = get_continuous_block(indices_libres, index_depart)
+                    candidats_cls.append((nom, longueur_dispo))
+                    
+            # On évite Yacine si possible, sinon on prend la plus grande disponibilité
+            candidats_cls.sort(key=lambda x: (1 if "yacine" in x[0].lower() else 0, -x[1]))
+            
+            if candidats_cls: 
+                elu = candidats_cls[0][0]
+                longueur_reelle = min(candidats_cls[0][1], nb_creneaux)
+                assigner_tache(elu, "CLS", index_depart, longueur_reelle)
+                compteur_cls[elu] += 1
+
+    # --- ETAPE 0 : LE CLOSER ---
+    if not est_dimanche:
+        start_soir_idx = next((i for i, s in enumerate(slots) if s.startswith("17:00")), None)
+        if start_soir_idx is not None:
+            candidats_disponibles = []
+            for nom in employes_presents:
+                infos = cache_emp.get(nom, {'statut': 'CDI', 'restriction_cls': False, 'restriction_handicap': 'Aucun'})
+                if infos['restriction_cls'] or infos['statut'] == "Interimaire" or is_blacklisted(nom) or is_same_person(nom, closer_veille): 
+                    continue
+                    
+                indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
+                if start_soir_idx in indices_libres:
+                    longueur = get_continuous_block(indices_libres, start_soir_idx)
+                    if longueur >= 8: 
+                        candidats_disponibles.append((nom, longueur))
+                        
+            candidats_disponibles.sort(key=lambda x: (1 if "yacine" in x[0].lower() else 0, -x[1]))
+            
+            if not candidats_disponibles:
+                for nom in employes_presents:
+                    infos = cache_emp.get(nom, {'statut': 'CDI', 'restriction_cls': False, 'restriction_handicap': 'Aucun'})
+                    if not infos['restriction_cls']:
+                        indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
+                        if start_soir_idx in indices_libres: 
+                            candidats_disponibles.append((nom, get_continuous_block(indices_libres, start_soir_idx)))
+                candidats_disponibles.sort(key=lambda x: -x[1])
+                
+            if candidats_disponibles:
+                gagnant, longueur_bloc = candidats_disponibles[0]
+                assigner_tache(gagnant, "CLS", start_soir_idx, longueur_bloc)
+                compteur_cls[gagnant] += 1
+                closer_assigne = gagnant
+                db.save_historique_fermeture(date_saisie, gagnant)
+
+    # --- ETAPE 0.5 : CLS JOURNÉE (SEMAINE) ---
+    if not est_dimanche:
+        for i, ts in enumerate(slots):
+            if int(ts.split(':')[0]) >= 17: break
+            
+            if not any(matrice_planning[i][x] == "CLS" for x in range(len(employes_presents))):
+                candidats_disponibles = []
+                for nom in employes_presents:
+                    infos = cache_emp.get(nom, {'statut': 'CDI', 'restriction_cls': False, 'restriction_handicap': 'Aucun'})
+                    if nom == closer_assigne or infos['restriction_cls'] or is_blacklisted(nom) or compteur_cls[nom] >= 1: 
+                        continue
+                    indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
+                    if i in indices_libres: 
+                        candidats_disponibles.append((nom, get_continuous_block(indices_libres, i)))
+                        
+                candidats_disponibles.sort(key=lambda x: (1 if x[1] < 8 else 0, 5000 if "yacine" in x[0].lower() else 0))
+                if candidats_disponibles: 
+                    assigner_tache(candidats_disponibles[0][0], "CLS", i, min(candidats_disponibles[0][1], 8))
+                    compteur_cls[candidats_disponibles[0][0]] += 1
+
+    # --- ETAPE 1 : LES PAUSES ---
+    slots_pause_matin = math.ceil((minutes_matin + MARGE_MISSION_PAUSE_MIN) / 15)
+    if slots_pause_matin > 0:
+        cur_idx = 6 
+        restant = slots_pause_matin
+        while restant > 0 and cur_idx < 20:
+            candidats_disponibles = []
+            for nom in employes_presents:
+                if "andré" in nom.lower(): continue 
+                
+                indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
+                if cur_idx in indices_libres: 
+                    candidats_disponibles.append({"nom": nom, "longueur": get_continuous_block(indices_libres, cur_idx)})
+                    
+            if not candidats_disponibles: 
+                cur_idx += 1
+                continue
+                
+            def score_pause(c):
+                infos = cache_emp.get(c['nom'], {'statut': 'CDI', 'restriction_cls': False, 'restriction_handicap': 'Aucun'})
+                score = 1000 if infos['statut'] != "Interimaire" else 0
+                if c['nom'] == closer_assigne: score -= 5000
+                return score + min(c['longueur'], restant) * 10 - _score_mission(c['nom']) * 5
+                
+            candidats_disponibles.sort(key=score_pause, reverse=True)
+            gagnant = candidats_disponibles[0]
+            
+            if gagnant["nom"] == closer_assigne and score_pause(gagnant) < 0: 
+                cur_idx += 1
+                continue
+                
+            longueur_assignee = min(gagnant['longueur'], restant)
+            assigner_tache(gagnant['nom'], "PAUSE", cur_idx, longueur_assignee)
+            _inc_mission(gagnant['nom'])
+            cur_idx += longueur_assignee
+            restant -= longueur_assignee
+
+    slots_pause_aprem = math.ceil((minutes_aprem + MARGE_MISSION_PAUSE_MIN) / 15)
+    if slots_pause_aprem > 0 and not est_dimanche:
+        restant = slots_pause_aprem
+        cur_idx = max(24, 40 - restant)
+        while restant > 0 and cur_idx < 44:
+            candidats_disponibles = []
+            for nom in employes_presents:
+                if "andré" in nom.lower(): continue 
+                
+                indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
+                if cur_idx in indices_libres: 
+                    candidats_disponibles.append({"nom": nom, "longueur": get_continuous_block(indices_libres, cur_idx)})
+                    
+            if not candidats_disponibles: 
+                cur_idx += 1
+                continue
+                
+            def score_pause_a(c):
+                infos = cache_emp.get(c['nom'], {'statut': 'CDI', 'restriction_cls': False, 'restriction_handicap': 'Aucun'})
+                score = 1000 if infos['statut'] != "Interimaire" else 0
+                if c['nom'] == closer_assigne: score -= 5000
+                return score + min(c['longueur'], restant) * 10 - _score_mission(c['nom']) * 5
+                
+            candidats_disponibles.sort(key=score_pause_a, reverse=True)
+            gagnant = candidats_disponibles[0]
+            
+            if gagnant["nom"] == closer_assigne and score_pause_a(gagnant) < 0: 
+                cur_idx += 1
+                continue
+                
+            longueur_assignee = min(gagnant['longueur'], restant)
+            assigner_tache(gagnant['nom'], "PAUSE", cur_idx, longueur_assignee)
+            _inc_mission(gagnant['nom'])
+            cur_idx += longueur_assignee
+            restant -= longueur_assignee
+
+
+
+    def get_last_task_for_bonus(nom_c, current_i):
+        col = map_employes[nom_c]
+        for j in range(current_i - 1, -1, -1):
+            task = matrice_planning[j][col]
+            if task:
+                if task == "PAUSE":
+                    continue
+                return task
+            else:
+                return None
+        return None
+
+    # --- ETAPE 3 : ASSIGNATION CHRONOLOGIQUE DES CAISSES ---
+    ordre_caisses = [1, 2, 13, 14, 5, 6, 3, 4, 7, 8, 9, 10, 11, 12]
+    
+    for i, ts in enumerate(slots):
+        for num_caisse in ordre_caisses:
+            nom_caisse = f"C{num_caisse}"
+            
+            if any(matrice_planning[i][x] == nom_caisse for x in range(len(employes_presents))): 
+                continue
+                
+            # Préservation pendant la pause
+            last_occupant_col = None
+            if i > 0:
+                for j in range(i - 1, -1, -1):
+                    col = next((x for x in range(len(employes_presents)) if matrice_planning[j][x] == nom_caisse), None)
+                    if col is not None:
+                        last_occupant_col = col
+                        break
+            
+            if last_occupant_col is not None and matrice_planning[i][last_occupant_col] == "PAUSE":
+                continue
+                
+            candidats_disponibles = []
+            for nom in employes_presents:
+                indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
+                if i in indices_libres: 
+                    candidats_disponibles.append((nom, get_continuous_block(indices_libres, i)))
+                    
+            if not candidats_disponibles:
+                continue
+
+            def score_caisse(c):
+                nom_c = c[0]
+                longueur_c = c[1]
+                infos = cache_emp.get(nom_c, {'statut': 'CDI', 'restriction_handicap': 'Aucun'})
+                
+                # Base penalty
+                if num_caisse in [1, 2]:
+                    penalite = get_penalite(nom_c, HIERARCHIE_PENALITE_C1_C2)
+                elif num_caisse in [13, 14]:
+                    penalite = get_penalite(nom_c, HIERARCHIE_PENALITE_C13_C14)
+                else:
+                    penalite = 0
+                
+                last_task = get_last_task_for_bonus(nom_c, i)
+                if last_task == nom_caisse:
+                    penalite -= 500000
+                elif last_task is not None and last_task.startswith("C"):
+                    penalite += 400000
+                    for pair in [[1,2], [13,14], [5,6], [3,4], [7,8], [9,10], [11,12]]:
+                        names = [f"C{n}" for n in pair]
+                        if last_task in names and nom_caisse in names:
+                            penalite += 999999
+                
+                # Bonus absolu (-100000) pour imposer l'intérim
+                if num_caisse in [1, 2, 13, 14] and infos.get('statut') == "Interimaire": 
+                    penalite -= 100000 
+                    
+                # Bonus pour Alicia qui aime la C1 (passe après les intérimaires)
+                if "Alicia" in nom_c and num_caisse == 1:
+                    penalite -= 50000
+                if longueur_c < 4:
+                    penalite += 200000
+                    
+                est_pair = (num_caisse % 2 == 0)
+                if (infos.get('restriction_handicap') == "Caisse Impaire Uniq." and est_pair) or \
+                   (infos.get('restriction_handicap') == "Caisse Paire Uniq." and not est_pair): 
+                    penalite += 999999
+                    
+                return (penalite, -longueur_c)
+                
+            candidats_disponibles.sort(key=score_caisse)
+            if score_caisse(candidats_disponibles[0])[0] < 900000: 
+                assigner_tache(candidats_disponibles[0][0], nom_caisse, i, 1)
+    
+    # --- ETAPE 6 : POLYVALENT ---
+    for nom in employes_presents:
+        indices_libres = get_available_slots_indices(nom, plan_data, slots, matrice_planning, map_employes)
+        if indices_libres:
+            blocs_continus = [[indices_libres[0]]]
+            for k in range(1, len(indices_libres)):
+                if indices_libres[k] == indices_libres[k-1] + 1: 
+                    blocs_continus[-1].append(indices_libres[k])
+                else: 
+                    blocs_continus.append([indices_libres[k]])
+                    
+            for bloc in blocs_continus: 
+                assigner_tache(nom, "POLY", bloc[0], len(bloc))
+
+    infos_pauses = f"Mission Pause Matin : {math.ceil((minutes_matin + MARGE_MISSION_PAUSE_MIN)/15)*15} min | Aprem : {math.ceil((minutes_aprem + MARGE_MISSION_PAUSE_MIN)/15)*15} min"
+    
+    return {
+        "slots": slots,
+        "employes_presents": employes_presents,
+        "matrice_planning": matrice_planning,
+        "plan_data": plan_data,
+        "infos_pauses": infos_pauses,
+        "closer_veille": closer_veille,
+        "emp_map": map_employes
+    }
+# --- PHASE 2 : SOLVEUR WFM (OR-Tools) --- 
+def generer_horaires_mensuels(employes, jours_du_mois):
+    # Implémentation future du solveur OR-Tools
+    # model = cp_model.CpModel()
+    # work_vars = ...
+
+    # Contrainte stricte : Jours de repos fixes
+    # for employe in employes:
+    #     repos = employe.get('repos_fixes', '').split(',')
+    #     for jour_idx, jour_nom in jours_du_mois:
+    #         if jour_nom in repos:
+    #             # Le solveur doit forcer toutes ses variables de travail de la journée à 0
+    #             # for t in tranches:
+    #             #     model.Add(work_vars[(employe['id'], jour_idx, t)] == 0)
+    pass
