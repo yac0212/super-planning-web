@@ -1,6 +1,6 @@
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 
 DATA_DIR = os.environ.get('DATA_DIR', '.')
 
@@ -46,9 +46,21 @@ def init_db():
     )''')
     cur.execute('''CREATE TABLE IF NOT EXISTS historique_fermeture (date_str TEXT PRIMARY KEY, nom_employe TEXT)''')
     cur.execute('''CREATE TABLE IF NOT EXISTS compteur_missions (nom TEXT PRIMARY KEY, total INTEGER)''')
+    # Missions datees. Remplace compteur_missions, qui etait un cumul a vie sans
+    # dates : impossible d'en tirer une fenetre glissante, et surtout incremente
+    # a CHAQUE generation. Cinq brouillons du meme jour comptaient cinq journees
+    # de mission pour la meme personne, ce qui faussait durablement l'equite.
+    # Ici les lignes sont remplacees par date : regenerer ne cumule plus.
+    # jour est au format ISO (AAAA-MM-JJ) pour pouvoir comparer les dates ;
+    # date_str garde le format d'affichage JJ/MM/AAAA du reste de l'application.
+    cur.execute('''CREATE TABLE IF NOT EXISTS historique_missions (
+        date_str TEXT, jour TEXT, nom TEXT, mission TEXT)''')
+    cur.execute('''CREATE INDEX IF NOT EXISTS idx_missions_jour
+                   ON historique_missions (jour)''')
     cur.execute('''CREATE TABLE IF NOT EXISTS sauvegarde_historique (date_str TEXT, nom TEXT, ms TEXT, me TEXT, aes TEXT, aee TEXT)''')
     cur.execute('''CREATE TABLE IF NOT EXISTS demandes_interim (id INTEGER PRIMARY KEY AUTOINCREMENT, absent TEXT, date_creation TEXT, dates_resume TEXT, grille_data TEXT)''')
     migrer_schema(cur)
+    semer_preferences(cur)
     conn.commit()
     conn.close()
 
@@ -65,6 +77,15 @@ COLONNES_AJOUTEES = [
     ("articles_minute", "REAL DEFAULT 0.0"),
     ("note_manager",    "REAL DEFAULT 5.0"),
     ("repos_fixes",     "TEXT DEFAULT ''"),
+    # Preferences par personne, remontees du code vers la base le 2026-08-01.
+    # Elles remplacent des regles qui portaient des noms en dur dans algo.py et
+    # obligeaient a rouvrir le code a chaque mouvement de personnel.
+    # caisses_evitees : "1:5000,2:3000" — numero de caisse : penalite.
+    # evite_cls : PREFERENCE de ne pas prendre le CLS, a ne pas confondre avec
+    #   restriction_cls qui est une interdiction ferme.
+    ("caisses_evitees", "TEXT DEFAULT ''"),
+    ("evite_cls",       "BOOLEAN DEFAULT 0"),
+    ("evite_pause",     "BOOLEAN DEFAULT 0"),
 ]
 
 def migrer_schema(cur):
@@ -74,6 +95,55 @@ def migrer_schema(cur):
     for nom_colonne, definition in COLONNES_AJOUTEES:
         if nom_colonne not in existantes:
             cur.execute(f"ALTER TABLE employes ADD COLUMN {nom_colonne} {definition}")
+
+
+# Valeurs de depart des preferences remontees du code vers la base le 2026-08-01.
+# Ce sont les regles qui etaient ecrites en dur dans algo.py, transcrites une
+# derniere fois ici pour ne pas les perdre a la migration : sans cette etape, les
+# colonnes se creent vides et le comportement change du jour au lendemain sans
+# que personne ne s'en apercoive.
+#
+# La cle est un fragment de nom ; elle n'est utilisee qu'UNE fois, au premier
+# demarrage suivant la migration. Ce n'est pas une regle metier, c'est une
+# reprise de donnees. Le detail est dans REGLES_METIER.md section 8.
+PREFERENCES_INITIALES = [
+    ("yacine", "1:5000,2:5000,13:3000,14:3000", 1, 0),
+    ("ethan",  "1:3000,2:3000,13:3000,14:3000", 0, 0),
+    ("dalya",  "1:2000,2:2000",                 0, 0),
+    ("andré",  "",                              0, 1),
+]
+
+
+def _mots(texte):
+    return set(m for m in (texte or "").lower().replace("-", " ").split() if m)
+
+
+def semer_preferences(cur):
+    """Applique PREFERENCES_INITIALES, une seule fois.
+
+    Le passage est trace dans la table `parametres` : sans ce marqueur, un
+    utilisateur qui viderait volontairement une preference la verrait revenir au
+    redemarrage suivant.
+    """
+    cur.execute("CREATE TABLE IF NOT EXISTS parametres (cle TEXT PRIMARY KEY, valeur TEXT)")
+    deja = cur.execute("SELECT valeur FROM parametres WHERE cle='preferences_semees'").fetchone()
+    if deja:
+        return
+
+    employes = cur.execute("SELECT id, nom FROM employes").fetchall()
+    applique = 0
+    for cle, caisses, sans_cls, sans_pause in PREFERENCES_INITIALES:
+        # correspondance sur des mots ENTIERS, et refus si le fragment designe
+        # plusieurs personnes : mieux vaut ne rien poser que de viser le mauvais
+        # salarie ("emmanuel" avait deja fait ce genre de degat).
+        cibles = [e for e in employes if _mots(cle).issubset(_mots(e[1]))]
+        if len(cibles) != 1:
+            continue
+        cur.execute("UPDATE employes SET caisses_evitees=?, evite_cls=?, evite_pause=? WHERE id=?",
+                    (caisses, sans_cls, sans_pause, cibles[0][0]))
+        applique += 1
+    cur.execute("INSERT OR REPLACE INTO parametres VALUES ('preferences_semees', ?)",
+                (str(applique),))
 
 init_db()
 
@@ -194,15 +264,45 @@ def save_historique_fermeture(date_str, nom):
     conn.commit()
     conn.close()
 
-def get_mission_score(nom):
-    conn = get_db_connection()
-    res = conn.execute("SELECT total FROM compteur_missions WHERE nom=?", (nom,)).fetchone()
-    conn.close()
-    return res['total'] if res else 0
+# Nombre de jours pris en compte pour l'equite des missions. Un cumul a vie
+# penalisait a perpetuite les anciens : 15 missions pour l'un contre 1 pour un
+# arrivant recent, qui se retrouvait donc choisi en priorite pendant des mois.
+FENETRE_EQUITE_JOURS = 30
 
-def inc_mission_score(nom):
+def _iso(date_str):
+    """JJ/MM/AAAA -> AAAA-MM-JJ, comparable comme du texte."""
+    try:
+        return datetime.strptime(date_str, "%d/%m/%Y").strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        return ""
+
+def get_scores_missions(reference=None):
+    """Nombre de missions par personne sur les FENETRE_EQUITE_JOURS derniers jours.
+
+    Lu UNE fois au debut d'une generation, plus a chaque candidat comme avant :
+    l'ancienne version rouvrait la base depuis la boucle de selection des pauses.
+    """
+    fin = datetime.strptime(reference, "%d/%m/%Y") if reference else datetime.now()
+    debut = (fin - timedelta(days=FENETRE_EQUITE_JOURS)).strftime("%Y-%m-%d")
     conn = get_db_connection()
-    score = get_mission_score(nom)
-    conn.execute("INSERT OR REPLACE INTO compteur_missions VALUES (?,?)", (nom, score + 1))
+    lignes = conn.execute(
+        "SELECT nom, COUNT(*) AS total FROM historique_missions "
+        "WHERE jour >= ? AND jour <= ? GROUP BY nom",
+        (debut, fin.strftime("%Y-%m-%d"))).fetchall()
+    conn.close()
+    return {l['nom']: l['total'] for l in lignes}
+
+def enregistrer_missions(date_str, affectations):
+    """Remplace les missions du jour. `affectations` : liste de (nom, mission).
+
+    Idempotent par date : regenerer dix fois le meme planning laisse le meme
+    etat en base. C'est ce qui empeche les brouillons de fausser l'equite.
+    """
+    jour = _iso(date_str)
+    conn = get_db_connection()
+    conn.execute("DELETE FROM historique_missions WHERE date_str=?", (date_str,))
+    conn.executemany(
+        "INSERT INTO historique_missions (date_str, jour, nom, mission) VALUES (?,?,?,?)",
+        [(date_str, jour, nom, mission) for nom, mission in affectations])
     conn.commit()
     conn.close()

@@ -6,11 +6,10 @@ import database as db
 # Version de l'algorithme. Affichee dans le badge de l'interface : comme elle est
 # lue depuis CE module, elle atteste que le algo.py charge en memoire est bien le
 # bon. A incrementer a chaque modification de comportement.
-VERSION = "3.0"
+VERSION = "3.1"
 
 TIME_STEP = 15
 MARGE_MISSION_PAUSE_MIN = 30
-BLACKLIST_CLS_PERMANENT = ["jean marc", "jessica", "emmanuel"]
 
 # --- STABILITE DES AFFECTATIONS CAISSE ---
 # Ordre d'ouverture des caisses. Seules CAISSES_CRITIQUES declenchent un
@@ -35,18 +34,32 @@ DUREE_MIN_BLOC_CAISSE = 2  # 30 min
 # on ne mobilise pas quelqu'un d'autre pour un reliquat trop court.
 RELAI_PAUSE_MIN = 3  # 45 min
 
-HIERARCHIE_PENALITE_C1_C2 = {
-    "léandre": 1000, 
-    "dalya": 2000, 
-    "ethan": 3000, 
-    "yacine": 5000 
-}
+# --- PREFERENCES PAR PERSONNE ---
+# Elles vivaient dans le code, sous forme de noms en dur. Elles sont maintenant
+# lues dans la table employes : colonnes caisses_evitees, evite_cls, evite_pause.
+# Ce module ne contient donc plus AUCUN nom de personne. Voir REGLES_METIER.md.
+#
+# Supprimees au passage, le 2026-08-01 :
+#   - BLACKLIST_CLS_PERMANENT : entierement redondante avec restriction_cls, et
+#     sa cle "emmanuel" ne correspondait a personne (le filtre exige des mots
+#     entiers, "emmanuel" ne matche pas "Emmanuelle").
+#   - la penalite de "leandre" : plus aucun employe de ce nom.
+#   - le bonus de caisse 1 pour "alicia", et les penalites de "nathalie".
 
-HIERARCHIE_PENALITE_C13_C14 = {
-    "yacine": 3000, 
-    "ethan": 3000, 
-    "nathalie": 500
-}
+def caisses_evitees(infos):
+    """Penalites par caisse, lues au format "1:5000,2:3000".
+    Une entree sans deux-points prend une penalite par defaut."""
+    penalites = {}
+    for morceau in (infos.get('caisses_evitees') or "").split(","):
+        morceau = morceau.strip()
+        if not morceau:
+            continue
+        numero, _, poids = morceau.partition(":")
+        try:
+            penalites[int(numero)] = int(poids) if poids.strip() else 1000
+        except ValueError:
+            continue
+    return penalites
 
 def get_time(string_time):
     try: 
@@ -82,15 +95,6 @@ def is_same_person(nom1, nom2):
     court, long_ = (t1, t2) if len(t1) <= len(t2) else (t2, t1)
     return len(court) >= 2 and court.issubset(long_)
 
-def is_blacklisted(nom):
-    return any(_cle_matche(b, nom) for b in BLACKLIST_CLS_PERMANENT)
-
-def get_penalite(nom, dictionnaire_hierarchie):
-    for nom_cle, valeur in dictionnaire_hierarchie.items():
-        if _cle_matche(nom_cle, nom):
-            return valeur
-    return 0
-
 def caisse_autorisee(num_caisse, infos):
     """Filtre dur : une restriction handicap ne doit jamais etre contournable
     par un bonus de score (bug du seuil 900000)."""
@@ -113,13 +117,22 @@ def sont_adjacentes(num_a, num_b):
 # ---------------------------------------------------------------------------
 # OPTIMISATION GLOBALE
 # ---------------------------------------------------------------------------
-# Effort alloue a la recherche, en NOMBRE D'ESSAIS et non en secondes : deux
-# generations du meme jour doivent donner exactement le meme planning, ce qu'un
-# arret au chronometre ne permet pas (le nombre d'iterations varierait avec la
-# charge machine). 0 desactive l'optimisation.
+# Effort alloue a la recherche, en nombre d'essais. 0 desactive l'optimisation.
+#
+# NE PAS descendre a 20000 pour gagner du temps de chargement. Mesure du
+# 2026-08-01 sur quatre journees reelles, 20000 contre 60000 essais :
+#   releves         96 / 96    (identique)
+#   couverture fond 822 / 833  (11 creneaux de caisse ouverte en moins)
+#   postes < 1h30    17 / 13
+# Les sept secondes supplementaires achetent de la couverture reelle. Un test de
+# convergence anterieur laissait croire le contraire : il mesurait le cout interne
+# de l'optimiseur, pas les criteres metier.
+#
+# Le budget est compte en essais et non en secondes : cela rend l'effort
+# independant de la machine, donc previsible entre le poste de developpement et
+# l'hebergement mutualise.
 ESSAIS_OPTIM = int(os.environ.get("ESSAIS_OPTIM", "60000"))
-# Garde-fou : si le serveur est trop lent, on s'arrete quand meme. Atteindre ce
-# plafond rend le resultat non reproductible — un avertissement est alors trace.
+# Garde-fou si le serveur est tres lent.
 TEMPS_MAX_OPTIM_S = 30.0
 
 # Couts (plus c'est haut, plus c'est penalisant). Les valeurs negatives sont des
@@ -681,6 +694,37 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
     compteur_cls = {nom: 0 for nom in employes_presents}
     closer_assigne = None
 
+    def _infos(nom):
+        return cache_emp.get(nom, {'statut': 'CDI', 'restriction_cls': False,
+                                   'restriction_handicap': 'Aucun'})
+
+    def evite_cls(nom):
+        """PREFERENCE de ne pas prendre le CLS. A ne pas confondre avec
+        restriction_cls, qui est une interdiction ferme. Remplace les regles qui
+        citaient un prenom en dur dans le code."""
+        return bool(_infos(nom).get('evite_cls'))
+
+    def evite_pause(nom):
+        return bool(_infos(nom).get('evite_pause'))
+
+    # Equite des missions. Les scores sont lus UNE fois ici, sur une fenetre
+    # glissante, et les missions attribuees sont accumulees en memoire pour
+    # n'etre ecrites qu'a la toute fin.
+    #
+    # L'ancienne version incrementait le compteur en base au moment ou elle
+    # posait la mission, depuis la boucle de selection. Generer cinq brouillons
+    # du meme jour comptait donc cinq journees de mission a la meme personne,
+    # qui se retrouvait ensuite ecartee des pauses pour du travail qu'elle
+    # n'avait jamais fait.
+    scores_missions = db.get_scores_missions(date_saisie)
+    missions_du_jour = []
+
+    def noter_mission(nom, mission):
+        missions_du_jour.append((nom, mission))
+        # increment local : la selection suivante, dans la meme generation, doit
+        # voir que cette personne vient d'etre servie
+        scores_missions[nom] = scores_missions.get(nom, 0) + 1
+
     # --- ÉTAPE : PRIORITÉ ABSOLUE CLS LE DIMANCHE ---
     if est_dimanche:
         # Le dimanche, on commence à 09h30 (index 2) jusqu'à 13h00.
@@ -693,7 +737,7 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
             for nom in employes_presents:
                 # Vérifier si l'employé est autorisé et disponible
                 infos = cache_emp.get(nom, {'statut': 'CDI', 'restriction_cls': False, 'restriction_handicap': 'Aucun'})
-                if infos.get('restriction_cls') or is_blacklisted(nom) or compteur_cls[nom] >= 1: 
+                if infos.get('restriction_cls') or compteur_cls[nom] >= 1: 
                     continue
                 
                 indices_libres = get_available_slots_indices(nom, presence, matrice_planning, map_employes)
@@ -701,16 +745,17 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
                     longueur_dispo = get_continuous_block(indices_libres, index_depart)
                     candidats_cls.append((nom, longueur_dispo))
                     
-            # On évite Yacine si possible, sinon on prend la plus grande disponibilité.
+            # On evite ceux qui ont evite_cls en base, sinon plus grande disponibilite.
             # x[0] en dernier critère : départage déterministe, indépendant de
             # l'ordre de saisie des employés.
-            candidats_cls.sort(key=lambda x: (1 if _cle_matche("yacine", x[0]) else 0, -x[1], x[0]))
+            candidats_cls.sort(key=lambda x: (1 if evite_cls(x[0]) else 0, -x[1], x[0]))
             
             if candidats_cls: 
                 elu = candidats_cls[0][0]
                 longueur_reelle = min(candidats_cls[0][1], nb_creneaux)
                 assigner_tache(elu, "CLS", index_depart, longueur_reelle)
                 compteur_cls[elu] += 1
+                noter_mission(elu, "CLS")
 
     # --- ETAPE 0 : LE CLOSER ---
     if not est_dimanche:
@@ -719,7 +764,7 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
             candidats_disponibles = []
             for nom in employes_presents:
                 infos = cache_emp.get(nom, {'statut': 'CDI', 'restriction_cls': False, 'restriction_handicap': 'Aucun'})
-                if infos['restriction_cls'] or infos['statut'] == "Interimaire" or is_blacklisted(nom) or is_same_person(nom, closer_veille): 
+                if infos['restriction_cls'] or infos['statut'] == "Interimaire" or is_same_person(nom, closer_veille): 
                     continue
                     
                 indices_libres = get_available_slots_indices(nom, presence, matrice_planning, map_employes)
@@ -737,7 +782,7 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
                 return sum(1 for j in range(start_soir_idx) if presence[nom][j])
 
             candidats_disponibles.sort(
-                key=lambda x: (1 if _cle_matche("yacine", x[0]) else 0,
+                key=lambda x: (1 if evite_cls(x[0]) else 0,
                                disponibilite_avant_le_soir(x[0]),
                                -x[1], x[0]))
 
@@ -755,6 +800,7 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
                 assigner_tache(gagnant, "CLS", start_soir_idx, longueur_bloc)
                 compteur_cls[gagnant] += 1
                 closer_assigne = gagnant
+                noter_mission(gagnant, "CLOSER")
                 db.save_historique_fermeture(date_saisie, gagnant)
 
     # --- ETAPE 0.5 : CLS JOURNÉE (SEMAINE) ---
@@ -766,14 +812,14 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
                 candidats_disponibles = []
                 for nom in employes_presents:
                     infos = cache_emp.get(nom, {'statut': 'CDI', 'restriction_cls': False, 'restriction_handicap': 'Aucun'})
-                    if nom == closer_assigne or infos['restriction_cls'] or is_blacklisted(nom) or compteur_cls[nom] >= 1: 
+                    if nom == closer_assigne or infos['restriction_cls'] or compteur_cls[nom] >= 1: 
                         continue
                     indices_libres = get_available_slots_indices(nom, presence, matrice_planning, map_employes)
                     if i in indices_libres: 
                         candidats_disponibles.append((nom, get_continuous_block(indices_libres, i)))
                         
                 candidats_disponibles.sort(key=lambda x: (1 if x[1] < 8 else 0,
-                                                          5000 if _cle_matche("yacine", x[0]) else 0,
+                                                          5000 if evite_cls(x[0]) else 0,
                                                           x[0]))
                 if candidats_disponibles:
                     # Ne pas empieter sur un CLS deja pose. La boucle interdit de
@@ -788,6 +834,7 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
                     if longueur > 0:
                         assigner_tache(candidats_disponibles[0][0], "CLS", i, longueur)
                         compteur_cls[candidats_disponibles[0][0]] += 1
+                        noter_mission(candidats_disponibles[0][0], "CLS")
 
     # --- ETAPE 1 : LES PAUSES ---
     slots_pause_matin = math.ceil((minutes_matin + MARGE_MISSION_PAUSE_MIN) / 15)
@@ -802,7 +849,7 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
                 break
             candidats_disponibles = []
             for nom in employes_presents:
-                if _cle_matche("andré", nom): continue
+                if evite_pause(nom): continue
 
 
                 indices_libres = get_available_slots_indices(nom, presence, matrice_planning, map_employes)
@@ -817,7 +864,7 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
                 infos = cache_emp.get(c['nom'], {'statut': 'CDI', 'restriction_cls': False, 'restriction_handicap': 'Aucun'})
                 score = 1000 if infos['statut'] != "Interimaire" else 0
                 if c['nom'] == closer_assigne: score -= 5000
-                return score + min(c['longueur'], restant) * 10 - db.get_mission_score(c['nom']) * 5
+                return score + min(c['longueur'], restant) * 10 - scores_missions.get(c['nom'], 0) * 5
                 
             # tri decroissant sur le score, puis nom : departage deterministe
             candidats_disponibles.sort(key=lambda c: (-score_pause(c), c['nom']))
@@ -829,7 +876,7 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
                 
             longueur_assignee = min(gagnant['longueur'], restant)
             assigner_tache(gagnant['nom'], "PAUSE", cur_idx, longueur_assignee)
-            db.inc_mission_score(gagnant['nom'])
+            noter_mission(gagnant['nom'], "PAUSE")
             cur_idx += longueur_assignee
             restant -= longueur_assignee
             premier_titulaire = False
@@ -844,7 +891,7 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
                 break
             candidats_disponibles = []
             for nom in employes_presents:
-                if _cle_matche("andré", nom): continue
+                if evite_pause(nom): continue
 
 
                 indices_libres = get_available_slots_indices(nom, presence, matrice_planning, map_employes)
@@ -859,7 +906,7 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
                 infos = cache_emp.get(c['nom'], {'statut': 'CDI', 'restriction_cls': False, 'restriction_handicap': 'Aucun'})
                 score = 1000 if infos['statut'] != "Interimaire" else 0
                 if c['nom'] == closer_assigne: score -= 5000
-                return score + min(c['longueur'], restant) * 10 - db.get_mission_score(c['nom']) * 5
+                return score + min(c['longueur'], restant) * 10 - scores_missions.get(c['nom'], 0) * 5
                 
             candidats_disponibles.sort(key=lambda c: (-score_pause_a(c), c['nom']))
             gagnant = candidats_disponibles[0]
@@ -870,7 +917,7 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
                 
             longueur_assignee = min(gagnant['longueur'], restant)
             assigner_tache(gagnant['nom'], "PAUSE", cur_idx, longueur_assignee)
-            db.inc_mission_score(gagnant['nom'])
+            noter_mission(gagnant['nom'], "PAUSE")
             cur_idx += longueur_assignee
             restant -= longueur_assignee
             premier_titulaire = False
@@ -926,11 +973,7 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
         return compteur
 
     def penalite_hierarchie(nom_c, num_caisse):
-        if num_caisse in (1, 2):
-            return get_penalite(nom_c, HIERARCHIE_PENALITE_C1_C2)
-        if num_caisse in (13, 14):
-            return get_penalite(nom_c, HIERARCHIE_PENALITE_C13_C14)
-        return 0
+        return caisses_evitees(infos_de(nom_c)).get(num_caisse, 0)
 
     titulaire = {}     # num_caisse -> nom du titulaire (conserve pendant sa pause)
     depuis_slot = {}   # nom -> creneau d'installation sur sa caisse actuelle
@@ -1003,10 +1046,10 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
                     # sa caisse habituelle est libre : ne pas le detourner ici,
                     # elle sera pourvue plus loin dans la boucle
                     penalite += 150000
-                if num_caisse in CAISSES_CRITIQUES and infos_de(nom_c).get('statut') == "Interimaire":
+                # decision du 2026-07-31 : ce bonus portait sur les quatre caisses
+                # critiques, il est ramene a C1 et C2 seulement.
+                if num_caisse in CAISSES_ININTERROMPUES and infos_de(nom_c).get('statut') == "Interimaire":
                     penalite -= 100000
-                if _cle_matche("alicia", nom_c) and num_caisse == 1:
-                    penalite -= 50000
                 if longueur_c < DUREE_MIN_CAISSE:
                     penalite += 200000
                 # nom_c en dernier critere : resultat deterministe, insensible a
@@ -1138,6 +1181,10 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None):
                     
             for bloc in blocs_continus: 
                 assigner_tache(nom, "POLY", bloc[0], len(bloc))
+
+    # Ecriture unique, en fin de generation. enregistrer_missions() remplace les
+    # lignes de la journee : regenerer dix fois ne cumule plus rien.
+    db.enregistrer_missions(date_saisie, missions_du_jour)
 
     infos_pauses = f"Mission Pause Matin : {math.ceil((minutes_matin + MARGE_MISSION_PAUSE_MIN)/15)*15} min | Aprem : {math.ceil((minutes_aprem + MARGE_MISSION_PAUSE_MIN)/15)*15} min"
     
