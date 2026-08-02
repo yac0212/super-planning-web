@@ -1700,4 +1700,47 @@ métier et suivi · `f5299a7` bancs d'essai et modèle CP-SAT de référence ·
   été rédigé — [PROMPT_DOSSIER_DIRECTION.md](PROMPT_DOSSIER_DIRECTION.md), non versionné
   car le dépôt est public. C'est là que se trouve la vraie marge : l'aval est prouvé saturé.
 
+### Session 2026-08-02 (suite) — la préférence « caisses évitées » ne pesait que sur un seul créneau
+
+**Le signalement.** Sur le planning du mercredi 12/08/2026, Colondon Ethan tenait C2 quasiment
+toute la journée alors qu'il a une pénalité de 3000 sur cette caisse. Question posée : était-ce
+subi (aucune alternative) ou évitable ?
+
+**Le diagnostic.** Ni l'un ni l'autre : c'était un défaut mécanique. La pénalité
+`caisses_evitees` n'était lue que dans `score_comblement()`, c'est-à-dire **à l'instant précis
+où une caisse s'ouvre**. Ensuite :
+
+- la reconduction (ÉTAPE 3, phase A) prolonge l'affectation sans jamais la réinterroger ;
+- `evaluer_planning()`, la fonction de coût que le recuit optimise, **n'y faisait aucune
+  référence** — vérifié par extraction du corps de la fonction.
+
+Conséquence : une personne qui obtenait une caisse interdite au premier créneau y restait la
+journée entière, et augmenter la pénalité n'y aurait rien changé — elle n'était plus consultée.
+Ce jour-là, six personnes étaient présentes à 9h et Ethan était le seul restreint : la
+situation n'était pas contrainte.
+
+**La correction.** Une ligne dans `evaluer_planning()` : la pénalité est facturée **une fois
+par poste tenu** (bloc contigu), pas par créneau — c'est le coût d'*être affecté* à cette
+caisse, pas celui d'y rester. Le glouton n'a pas été touché : périmètre volontairement minimal,
+le recuit rattrape désormais ce que la reconduction laisse passer.
+
+**Mesure sur 10 journées réelles, avant / après :**
+
+| | avant | après |
+|---|---|---|
+| relèves (stabilité) | 160 | **160** — inchangé |
+| créneaux en violation de préférence | 31 | **12** |
+
+La correction est donc **gratuite** : le recuit redistribue au lieu de multiplier les
+changements. Le cas du 12/08 est résolu (Ethan passe sur C5 puis C7, plus aucune caisse
+évitée). 11 scénarios de synthèse : 0 anomalie, déterminisme préservé.
+
+**Résidus analysés.** Les violations restantes ont été reprises une par une, avec test de
+l'existence d'une alternative libre au même créneau : **7 créneaux sur 10 journées, tous
+forcés** (personne d'autre disponible sans pénalité sur cette caisse). Il n'y a plus rien à
+gagner ici sans dégrader la couverture.
+
+La bascule temporaire `PREFERENCE_DANS_RECUIT` qui a servi à l'A/B a été retirée ; le
+comportement est définitif et la mesure est consignée en commentaire dans `algo.py`.
+
 <!-- Ajouter les prochaines sessions au-dessus de cette ligne, format "### Session AAAA-MM-JJ" -->

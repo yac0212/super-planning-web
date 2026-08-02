@@ -187,6 +187,11 @@ POIDS = {
     "bloc_court":         300,  # poste de moins de DUREE_MIN_CAISSE
     "bloc_isole":         800,  # poste de 15 min
     "meme_caisse_jour":   300,  # meme caisse matin et apres-midi, hors C1/C2/C13/C14
+    # Cout d'une cellule qui s'ecarte du planning de reference, utilise uniquement
+    # par le module de secours. Volontairement eleve : un changement doit se
+    # justifier par une caisse rebouchee, jamais par un gain de confort. A 400, il
+    # faut l'equivalent d'un creneau de C13/C14 recupere pour qu'il soit rentable.
+    "ecart_reference":    400,
     # Recompense pour une caisse tenue. Elle est GRADUEE selon la priorite de la
     # caisse : tenir C1 vaut trois fois tenir C12. Avec une recompense uniforme,
     # l'optimiseur deplacait les gens vers n'importe quelle caisse libre et on
@@ -220,11 +225,33 @@ def _num_caisse(tache):
     return None
 
 
-def evaluer_planning(matrice, slots, employes_presents, map_employes, presence, cache_emp):
-    """Cout total d'un planning complet. Plus il est bas, meilleur il est."""
+def evaluer_planning(matrice, slots, employes_presents, map_employes, presence,
+                     cache_emp, reference=None):
+    """Cout total d'un planning complet. Plus il est bas, meilleur il est.
+
+    reference : planning a ne pas trop bousculer. Chaque cellule qui en differe
+    est facturee POIDS["ecart_reference"]. Sert au module de secours : quand
+    quelqu'un se declare absent le matin meme, on veut reboucher les trous SANS
+    redistribuer toute l'equipe — les autres ont deja lu leur planning."""
     nb_slots = len(slots)
     nb_emp = len(employes_presents)
     cout = 0
+
+    if reference is not None:
+        # On ne facture que le fait de DERANGER quelqu'un : une cellule qui portait
+        # deja une affectation et qui en porte une autre. Occuper un creneau qui
+        # etait vide est gratuit — c'est precisement ce qu'on cherche a faire en
+        # rebouchant les trous laisses par l'absent.
+        #
+        # Sans cette distinction, le cout d'ecart bloquait la reparation elle-meme :
+        # toute caisse repourvue etant un ecart, l'optimiseur preferait laisser les
+        # caisses de l'absent fermees toute la journee.
+        for i in range(nb_slots):
+            ligne_ref = reference[i]
+            for x in range(nb_emp):
+                ancienne = ligne_ref[x]
+                if ancienne and ancienne != "POLY" and matrice[i][x] != ancienne:
+                    cout += POIDS["ecart_reference"]
 
     # --- lecture par caisse : releves, trous, couverture ---
     for num in ORDRE_CAISSES:
@@ -304,11 +331,29 @@ def evaluer_planning(matrice, slots, employes_presents, map_employes, presence, 
             else:
                 fusionnes.append((n, l))
 
+        infos_nom = cache_emp.get(nom, {})
+        evitees = caisses_evitees(infos_nom)
         for n, l in fusionnes:
             if l < DUREE_MIN_BLOC_CAISSE:
                 cout += POIDS["bloc_isole"]
             elif l < DUREE_MIN_CAISSE:
                 cout += POIDS["bloc_court"]
+            # Preference "caisses_evitees" : facturee UNE FOIS par poste tenu, pas
+            # par creneau — c'est le cout d'etre affecte a cette caisse, pas celui
+            # d'y rester longtemps. Corrige un defaut trouve le 2026-08-02 : cette
+            # penalite ne pesait QUE sur le glouton, au moment ou une caisse
+            # s'ouvre (score_comblement) ; le recuit l'ignorait completement, et
+            # la reconduction (ETAPE 3, phase A) ne la reevalue jamais. Un employe
+            # pouvait donc rester toute la journee sur une caisse qu'il doit
+            # eviter, des lors qu'il l'obtenait une seule fois au premier creneau.
+            #
+            # MESURE sur 10 journees reelles (sans / avec cette ligne) :
+            #   releves                160 / 160   <- stabilite inchangee
+            #   creneaux en violation   31 /  12   <- -60 %
+            # La correction est donc gratuite : le recuit redistribue au lieu de
+            # multiplier les changements. Ne pas la retirer sans remesurer.
+            if n is not None:
+                cout += evitees.get(n, 0)
 
         # meme caisse avant et apres la coupure
         avant, apres, coupure_vue = set(), set(), False
@@ -342,7 +387,8 @@ def _segments_employe(matrice, colonne, nb_slots):
 
 
 def optimiser_planning(matrice, slots, employes_presents, map_employes,
-                       presence, cache_emp, plan_data, date_saisie, nb_essais):
+                       presence, cache_emp, plan_data, date_saisie, nb_essais,
+                       reference=None):
     """Recherche locale : part du planning glouton et teste des variantes.
     Ne renvoie jamais un planning moins bon que celui recu."""
     import random
@@ -579,7 +625,7 @@ def optimiser_planning(matrice, slots, employes_presents, map_employes,
 
     matrice_courante = [ligne[:] for ligne in matrice]
     cout_courant = evaluer_planning(matrice_courante, slots, employes_presents,
-                                    map_employes, presence, cache_emp)
+                                    map_employes, presence, cache_emp, reference)
     meilleure = [ligne[:] for ligne in matrice_courante]
     cout_meilleur = cout_courant
 
@@ -607,7 +653,7 @@ def optimiser_planning(matrice, slots, employes_presents, map_employes,
             for i, x, v in chgs:
                 matrice_courante[i][x] = v
             cout = evaluer_planning(matrice_courante, slots, employes_presents,
-                                    map_employes, presence, cache_emp)
+                                    map_employes, presence, cache_emp, reference)
             ecart = cout - cout_courant
             if ecart <= 0 or alea.random() < math.exp(-ecart / temperature):
                 cout_courant = cout
@@ -631,7 +677,7 @@ def optimiser_planning(matrice, slots, employes_presents, map_employes,
     optimiser_planning.dernieres_stats = {
         "essais": essais, "acceptes": acceptes,
         "cout_depart": evaluer_planning(matrice, slots, employes_presents,
-                                        map_employes, presence, cache_emp),
+                                        map_employes, presence, cache_emp, reference),
         "cout_final": cout_meilleur,
         "secondes": round(_time.time() - t0, 2),
         # vrai si le garde-fou de temps a coupe la recherche : le planning reste
@@ -1325,7 +1371,386 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None,
         "emp_map": map_employes,
         "presence": presence
     }
-# --- PHASE 2 : SOLVEUR WFM (OR-Tools) --- 
+# ---------------------------------------------------------------------------
+# MODULE DE SECOURS — absence declaree apres diffusion du planning
+# ---------------------------------------------------------------------------
+# Quelqu'un appelle le matin pour dire qu'il ne vient pas. Regenerer le planning
+# redistribue toute l'equipe, alors que les autres ont deja lu le leur : on ne
+# veut changer QUE ce que l'absence rend necessaire.
+#
+# Trois etapes :
+#   1. on retire la personne du planning existant, ce qui laisse des trous
+#   2. on repourvoit ses MISSIONS (CLS, mission pause), que l'optimiseur ne sait
+#      pas deplacer — il ne touche qu'aux caisses
+#   3. on relance l'optimiseur en partant de ce planning troue, avec un cout par
+#      cellule qui s'ecarte de l'original : il rebouche sans tout rebrasser
+
+def _presence_depuis(plan_data, slots, employes_presents):
+    return build_presence(plan_data, slots, employes_presents)
+
+
+def _repourvoir_mission(matrice, slots, employes_presents, map_employes, presence,
+                        cache_emp, tache, creneaux, deja_servis, scores_missions):
+    """Confie une suite de creneaux orphelins a la personne la plus disponible.
+
+    Renvoie la liste des (nom, premier_creneau, longueur) effectivement poses.
+    Une mission peut rester partiellement decouverte : mieux vaut un trou qu'un
+    titulaire qui part au bout de deux creneaux.
+    """
+    poses = []
+    restants = sorted(creneaux)
+    while restants:
+        debut = restants[0]
+        candidats = []
+        for nom in employes_presents:
+            infos = cache_emp.get(nom, {'statut': 'CDI', 'restriction_cls': False,
+                                        'restriction_handicap': 'Aucun'})
+            if nom in deja_servis:
+                continue
+            if tache == "CLS" and infos.get('restriction_cls'):
+                continue
+            if tache == "PAUSE" and infos.get('evite_pause'):
+                continue
+            colonne = map_employes[nom]
+            # disponible signifie : present, et pas deja pris par une mission.
+            # Une caisse, elle, peut etre liberee — l'optimiseur la repourvoira.
+            if not presence[nom][debut] or matrice[debut][colonne] in ("CLS", "PAUSE"):
+                continue
+            longueur = 0
+            curseur = debut
+            while (curseur in restants and presence[nom][curseur]
+                   and matrice[curseur][map_employes[nom]] not in ("CLS", "PAUSE")):
+                longueur += 1
+                curseur += 1
+            if longueur:
+                candidats.append((nom, longueur, infos))
+        if not candidats:
+            restants.pop(0)
+            continue
+        # evite_cls est une PREFERENCE, pas une interdiction : on ne l'ecarte pas,
+        # on le passe en dernier. Sans ce critere, la reparation confiait le CLS a
+        # quelqu'un qui est justement marque comme a eviter dessus.
+        candidats.sort(key=lambda c: (
+            1 if (tache == "CLS" and c[2].get('evite_cls')) else 0,
+            -c[1], scores_missions.get(c[0], 0), c[0]))
+        nom, longueur, _ = candidats[0]
+        colonne = map_employes[nom]
+        for k in range(debut, debut + longueur):
+            matrice[k][colonne] = tache
+            if k in restants:
+                restants.remove(k)
+        deja_servis.add(nom)
+        poses.append((nom, debut, longueur))
+    return poses
+
+
+def _controler_planning(matrice, slots, employes_presents, map_employes, presence):
+    """Relit un planning repare et signale ce qui reste hors des regles.
+
+    Ne corrige rien : quand l'effectif restant ne permet pas de tout reboucher,
+    l'utilisateur doit le SAVOIR pour decider — appeler un interimaire, ou vivre
+    avec une caisse fermee. Un module de secours qui masque ses limites est pire
+    qu'inutile.
+    """
+    alertes = []
+
+    def tenue(num, i):
+        return any(matrice[i][map_employes[n]] == f"C{num}" for n in employes_presents)
+
+    for num in CAISSES_CRITIQUES:
+        tolere = 0 if num in CAISSES_ININTERROMPUES else TROU_TOLERE
+        vide_depuis = None
+        for i in range(len(slots)):
+            if tenue(num, i):
+                vide_depuis = None
+                continue
+            if vide_depuis is None:
+                vide_depuis = i
+            if i - vide_depuis == tolere:
+                alertes.append({
+                    "type": "caisse_fermee", "caisse": f"C{num}",
+                    "depuis": slots[vide_depuis],
+                    "message": f"C{num} fermée à partir de {slots[vide_depuis]}",
+                })
+
+    for nom in employes_presents:
+        colonne = map_employes[nom]
+        courant, longueur, debut = None, 0, 0
+        for i in range(len(slots) + 1):
+            tache = matrice[i][colonne] if i < len(slots) else None
+            if tache == "PAUSE":
+                continue
+            num = _num_caisse(tache) if tache else None
+            if num != courant:
+                if courant is not None and longueur < DUREE_MIN_BLOC_CAISSE and i < len(slots):
+                    alertes.append({
+                        "type": "bloc_court", "nom": nom, "caisse": f"C{courant}",
+                        "message": f"{nom} : {longueur * TIME_STEP} min seulement sur C{courant} "
+                                   f"à {slots[debut]}",
+                    })
+                courant, longueur, debut = num, (1 if num else 0), i
+            else:
+                longueur += 1
+    return alertes
+
+
+def _reboucher_caisses_critiques(matrice, slots, employes_presents, map_employes,
+                                 presence, cache_emp):
+    """Repourvoit C1 et C2 partout ou elles sont vides, en derangeant le moins possible.
+
+    Deux sources, dans cet ordre : quelqu'un d'inoccupe — c'est gratuit — puis, a
+    defaut, le titulaire de la caisse ouverte la MOINS prioritaire, dont la caisse
+    est alors fermee. On ne recomble pas la caisse source : c'est ce qui empeche
+    toute cascade.
+    """
+    repris = []
+
+    def infos_de(nom):
+        return cache_emp.get(nom, {'statut': 'CDI', 'restriction_cls': False,
+                                   'restriction_handicap': 'Aucun'})
+
+    def caisse_avant(colonne, i):
+        """Derniere caisse tenue, pauses traversees : le controle des caisses
+        mitoyennes doit rester valable meme apres une pause."""
+        for j in range(i - 1, -1, -1):
+            tache = matrice[j][colonne]
+            if tache == "PAUSE":
+                continue
+            return _num_caisse(tache) if tache else None
+        return None
+
+    def tenue(num, i):
+        return any(matrice[i][map_employes[n]] == f"C{num}" for n in employes_presents)
+
+    def longueur_tenable(nom, num, i):
+        """Combien de creneaux consecutifs cette personne pourrait-elle tenir ?
+        Sert a ne pas installer quelqu'un pour un bloc isole de 15 min."""
+        colonne = map_employes[nom]
+        n = 0
+        while (i + n < len(slots) and presence[nom][i + n]
+               and matrice[i + n][colonne] not in ("CLS", "PAUSE")
+               and not tenue(num, i + n)):
+            n += 1
+        return n
+
+    def laisse_un_orphelin(nom, i):
+        """Retirer cette personne de sa caisse a ce creneau laisserait-il un
+        fragment de moins de DUREE_MIN_BLOC_CAISSE derriere elle ?"""
+        colonne = map_employes[nom]
+        actuelle = matrice[i][colonne]
+        if not actuelle or not actuelle.startswith("C") or actuelle == "CLS":
+            return False
+        avant = 0
+        j = i - 1
+        while j >= 0 and matrice[j][colonne] == actuelle:
+            avant += 1; j -= 1
+        apres = 0
+        j = i + 1
+        while j < len(slots) and matrice[j][colonne] == actuelle:
+            apres += 1; j += 1
+        return (0 < avant < DUREE_MIN_BLOC_CAISSE) or (0 < apres < DUREE_MIN_BLOC_CAISSE)
+
+    for num in ORDRE_CAISSES:
+        if num not in CAISSES_CRITIQUES:
+            continue
+        nom_caisse = f"C{num}"
+        sans_interruption = num in CAISSES_ININTERROMPUES
+        vide_depuis = None
+        for i in range(len(slots)):
+            if tenue(num, i):
+                vide_depuis = None
+                continue
+            if vide_depuis is None:
+                vide_depuis = i
+            # C1 et C2 se recomblent au premier creneau vide. C13 et C14 tolerent
+            # un trou : on n'intervient qu'une fois TROU_TOLERE depasse, sinon on
+            # deplacerait quelqu'un pour rien.
+            if not sans_interruption and i - vide_depuis < TROU_TOLERE:
+                continue
+
+            def utilisable(nom):
+                colonne = map_employes[nom]
+                if not presence[nom][i]:
+                    return False
+                if matrice[i][colonne] in ("CLS", "PAUSE"):
+                    return False
+                if not caisse_autorisee(num, infos_de(nom)):
+                    return False
+                precedente = caisse_avant(colonne, i)
+                if precedente is not None and sont_adjacentes(precedente, num):
+                    return False
+                # Pas de bloc isole — sauf sur C1/C2, ou une caisse ouverte 15 min
+                # vaut mieux qu'une fermeture, et sauf en fin de journee ou un
+                # poste court est de toute facon inevitable. Sans cette seconde
+                # exception, C2 restait fermee a 19h30 faute de candidat qualifie.
+                reste = len(slots) - i
+                minimum = min(DUREE_MIN_BLOC_CAISSE, reste)
+                if not sans_interruption and longueur_tenable(nom, num, i) < minimum:
+                    return False
+                return True
+
+            # 1. les inoccupes — les prendre ne coute rien a personne
+            libres = [n for n in employes_presents
+                      if utilisable(n) and matrice[i][map_employes[n]] in ("", "POLY")]
+            if libres:
+                elu = sorted(libres, key=lambda n: (-longueur_tenable(n, num, i), n))[0]
+            else:
+                # 2. sinon on puise dans la caisse ouverte la MOINS prioritaire,
+                #    sans laisser de fragment inutilisable derriere soi
+                candidats = []
+                for n in employes_presents:
+                    if not utilisable(n) or laisse_un_orphelin(n, i):
+                        continue
+                    source = _num_caisse(matrice[i][map_employes[n]])
+                    if source is None or source in CAISSES_ININTERROMPUES:
+                        continue
+                    if not sans_interruption and source in CAISSES_CRITIQUES:
+                        continue          # echanger C13 contre C14 deplace le trou
+                    candidats.append((ORDRE_CAISSES.index(source), n))
+                if not candidats:
+                    continue
+                candidats.sort(key=lambda c: (-c[0], c[1]))
+                elu = candidats[0][1]
+            matrice[i][map_employes[elu]] = nom_caisse
+            vide_depuis = None
+            repris.append({"caisse": nom_caisse, "creneau": slots[i], "nom": elu})
+    return repris
+
+
+def reparer_absence(date_saisie, inputs_dict, cache_emp, matrice_reference,
+                    noms_absents, absent_a_partir_de=None, essais_optim=None):
+    """Repare un planning apres une ou plusieurs absences, en changeant le moins possible.
+
+    matrice_reference : le planning deja diffuse, matrice[creneau][employe], dans
+        l'ordre de `employes_presents` tel que `run_algo` l'avait produit.
+    noms_absents : liste de noms. La correspondance est souple (mots entiers).
+    absent_a_partir_de : "14:00" pour une absence en cours de journee ; None pour
+        la journee entiere.
+
+    Renvoie le meme dictionnaire que run_algo, plus une cle `rapport`.
+    """
+    if essais_optim is None:
+        essais_optim = ESSAIS_OPTIM
+
+    slots = generate_timeline()
+    plan_data, employes_presents = [], []
+    for nom, times in inputs_dict.items():
+        start_m, end_m = get_time(times.get('ms', '')), get_time(times.get('me', ''))
+        start_a, end_a = get_time(times.get('aes', '')), get_time(times.get('aee', ''))
+        if start_m or start_a:
+            plan_data.append({"nom": nom, "matin": (start_m, end_m), "aprem": (start_a, end_a)})
+            employes_presents.append(nom)
+
+    if not employes_presents:
+        return {"error": "Aucun employé n'est planifié aujourd'hui."}
+    if not matrice_reference or len(matrice_reference) != len(slots):
+        return {"error": "Le planning de référence ne correspond pas à cette journée."}
+
+    map_employes = {nom: i for i, nom in enumerate(employes_presents)}
+    presence = _presence_depuis(plan_data, slots, employes_presents)
+
+    cibles = [n for n in employes_presents
+              if any(_cle_matche(a, n) or is_same_person(a, n) for a in noms_absents)]
+    if not cibles:
+        return {"error": f"Aucun employé ne correspond à {', '.join(noms_absents)}."}
+
+    depart_absence = 0
+    if absent_a_partir_de:
+        depart_absence = next((i for i, s in enumerate(slots) if s >= absent_a_partir_de), 0)
+
+    # --- 1. on retire les absents ---
+    matrice = [ligne[:] for ligne in matrice_reference]
+    perdu = {}
+    for nom in cibles:
+        colonne = map_employes[nom]
+        for i in range(depart_absence, len(slots)):
+            if matrice[i][colonne]:
+                perdu.setdefault(matrice[i][colonne], []).append(i)
+            matrice[i][colonne] = ""
+            presence[nom][i] = False
+
+    # --- 2. on repourvoit les missions, que l'optimiseur ne sait pas deplacer ---
+    scores_missions = db.get_scores_missions(date_saisie)
+    deja_servis = set()
+    for i in range(len(slots)):
+        for x, nom in enumerate(employes_presents):
+            if matrice[i][x] in ("CLS", "PAUSE"):
+                deja_servis.add(nom)
+    rapport = {"absents": cibles, "missions_reprises": []}
+    for tache in ("CLS", "PAUSE"):
+        creneaux = perdu.get(tache, [])
+        if not creneaux:
+            continue
+        poses = _repourvoir_mission(matrice, slots, employes_presents, map_employes,
+                                    presence, cache_emp, tache, creneaux,
+                                    deja_servis, scores_missions)
+        for nom, debut, longueur in poses:
+            rapport["missions_reprises"].append({
+                "mission": tache, "nom": nom,
+                "de": slots[debut],
+                "a": slots[min(debut + longueur, len(slots) - 1)],
+            })
+        couverts = sum(l for _, _, l in poses)
+        if couverts < len(creneaux):
+            rapport.setdefault("missions_non_couvertes", []).append(
+                {"mission": tache, "creneaux_orphelins": len(creneaux) - couverts})
+
+    # --- 2bis. les caisses qui ne doivent jamais fermer, de facon deterministe ---
+    # L'optimiseur sait le faire en theorie — la fermeture de C1/C2 coute 5000
+    # contre 400 pour un ecart — mais c'est une recherche aleatoire : elle trouve
+    # souvent, pas toujours. Sur une regle absolue on ne parie pas.
+    rapport_critiques = _reboucher_caisses_critiques(
+        matrice, slots, employes_presents, map_employes, presence, cache_emp)
+
+    # --- 3. on rebouche le reste sans bousculer l'equipe ---
+    avant = [ligne[:] for ligne in matrice]
+    if essais_optim > 0:
+        matrice = optimiser_planning(matrice, slots, employes_presents, map_employes,
+                                     presence, cache_emp, plan_data, date_saisie,
+                                     essais_optim, reference=matrice_reference)
+
+    # --- comptes rendus, pour que l'utilisateur voie l'ampleur du remaniement ---
+    changements = []
+    for i in range(len(slots)):
+        for x, nom in enumerate(employes_presents):
+            if nom in cibles:
+                continue
+            if matrice[i][x] != matrice_reference[i][x]:
+                changements.append({"nom": nom, "creneau": slots[i],
+                                    "avant": matrice_reference[i][x] or "—",
+                                    "apres": matrice[i][x] or "—"})
+    if rapport_critiques:
+        rapport["caisses_critiques_repourvues"] = rapport_critiques
+    # Auto-controle : la reparation peut echouer a tout reboucher quand l'effectif
+    # restant ne le permet pas. On le SIGNALE plutot que de le masquer — a
+    # l'utilisateur de decider s'il ajoute un interimaire ou s'il l'accepte.
+    rapport["alertes"] = _controler_planning(matrice, slots, employes_presents,
+                                             map_employes, presence)
+    rapport["cellules_changees"] = len(changements)
+    rapport["employes_touches"] = sorted({c["nom"] for c in changements})
+    rapport["detail"] = changements
+
+    # --- POLYVALENT sur ce qui reste libre, comme dans run_algo ---
+    for nom in employes_presents:
+        colonne = map_employes[nom]
+        for i in range(len(slots)):
+            if presence[nom][i] and not matrice[i][colonne]:
+                matrice[i][colonne] = "POLY"
+
+    return {
+        "slots": slots,
+        "employes_presents": employes_presents,
+        "matrice_planning": matrice,
+        "plan_data": plan_data,
+        "infos_pauses": "Planning réparé après absence",
+        "closer_veille": db.get_historique_fermeture(date_saisie),
+        "emp_map": map_employes,
+        "presence": presence,
+        "rapport": rapport,
+    }
+
+
+# --- PHASE 2 : SOLVEUR WFM (OR-Tools) ---
 def generer_horaires_mensuels(employes, jours_du_mois):
     # Implémentation future du solveur OR-Tools
     # model = cp_model.CpModel()
