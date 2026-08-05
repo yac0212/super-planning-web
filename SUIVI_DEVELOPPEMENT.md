@@ -1949,4 +1949,93 @@ dans `sessionStorage`, la fenêtre reste masquée après rechargement dans la m�
 Seule la liste défile : l'en-tête et les boutons sont figés, sinon sur un écran court les deux
 boutons passent sous la ligne de flottaison.
 
+### Session 2026-08-05 (suite) — deux écrans construits plus tôt et jamais mis en ligne
+
+En cherchant pourquoi l'utilisateur ne voyait pas la vue Frise, on a découvert qu'elle
+**n'avait jamais été commitée**. Elle vivait en modification locale depuis sa session de
+création. Idem pour l'aperçu intégré. Vérification :
+
+```
+git show HEAD:templates/index.html | grep -c "vue-frise"   ->  0
+```
+
+Leçon : les commits précédents ne portaient que `algo.py` et la documentation. **Vérifier
+`git status` en fin de session, pas seulement les fichiers qu'on croit avoir touchés.**
+
+#### La vue Frise
+
+Un bouton bascule entre **Frise** et **Tableau** en haut de l'onglet Planification. La frise
+affiche une piste par employé et des barres à manipuler à la souris : glisser le corps de la
+barre décale la plage, tirer un bord l'allonge ou la raccourcit, un clic sur une piste vide
+crée une plage, un double-clic sur une barre la supprime.
+
+**Point d'architecture** : la frise n'a **pas de modèle de données à elle**. Elle lit et écrit
+les mêmes champs `.m1 / .m2 / .a1 / .a2` que la vue Tableau. `getPlanningInputs()` n'a donc pas
+été touché et les deux vues sont synchronisées par construction — il n'y a rien à réconcilier.
+
+**Vérifiée à l'écran pour la première fois** : 32 pistes générées, échelle 9h–20h, géométrie
+exacte (09:00–13:00 donne une barre de largeur 36,36 %, soit 4 h sur 11 h ; 16:00–20:00 démarre
+à 63,6 %). Le redimensionnement écrit bien dans les champs — bord droit tiré vers 14:30, le
+champ `m2` passe de `13:00` à `14:30`.
+
+**Corrigé au passage** : les poignées de redimensionnement faisaient 8 px, trop fin pour être
+attrapées sans viser. Portées à 14 px, avec un trait visible au survol.
+
+#### L'aperçu intégré
+
+Le planning généré s'affiche dans un cadre sous les boutons, au lieu d'ouvrir un onglet. Le
+bouton « Ouvrir dans un onglet » reste disponible. L'ancien schéma d'onglet pré-ouvert avant
+l'appel réseau a été remplacé par un appel à `afficherApercu(url, titre)` après succès.
+
+#### Le module de secours absence — construit, testé, **non branché**
+
+`reparer_absence()` dans [algo.py](algo.py) : quand quelqu'un se déclare absent le matin même,
+il **garde le planning existant** et ne modifie que ce que l'absence impose, au lieu de tout
+régénérer.
+
+Mécanique : le planning d'origine est passé en `reference` à `evaluer_planning()` /
+`optimiser_planning()`, et chaque cellule qui s'en écarte coûte `POIDS["ecart_reference"]`
+(400). Trois fonctions d'appui — `_repourvoir_mission()` pour les CLS et missions pause
+orphelines, `_reboucher_caisses_critiques()` pour garantir C1/C2/C13/C14 sans dépendre du
+hasard du recuit, `_controler_planning()` qui remonte en `alertes` ce qui n'a pas pu être
+couvert.
+
+**Piège corrigé pendant la construction** : facturer l'écart sur *toutes* les cellules
+différentes bloquait la réparation elle-même — reboucher une caisse abandonnée étant un écart,
+l'optimiseur préférait la laisser fermée. L'écart n'est donc facturé que quand la cellule de
+référence était **non vide et non POLY** : on paie pour déranger quelqu'un, jamais pour occuper
+un trou.
+
+⚠️ **Aucune route ni écran.** Le code est en production mais dormant : il n'existe pas de
+« Intérim & Absences » qui l'appelle. Mise en pause à la demande de l'utilisateur.
+
+#### Mise en ligne 3.5
+
+Commit `ee05bd1` sur `feature-wfm`. Contenu : les trois règles d'algorithme du 05/08, la frise,
+l'aperçu, la fenêtre de nouveautés, et les deux corrections de déploiement (anti-cache,
+`.modal-header` / `.btn-close`).
+
+#### Reste à faire — état au 05/08/2026
+
+- **Mission pause du matin à 10h45.** L'utilisateur l'a indiqué en même temps que la règle de
+  l'après-midi ; seul l'après-midi a été traité. Le code démarre toujours au créneau 6 (10:30).
+  Demande sa propre mesure avant d'être appliquée.
+- **Brancher `reparer_absence()`** à une route et à un écran. Le moteur est prêt et testé,
+  il ne manque que l'interface.
+- **Les caisses fermées en milieu de journée** ne sont protégées par rien (cas du 18/08 :
+  C5 fermée 3 h, sa titulaire ayant pris la mission pause). Hors périmètre choisi pour S4.
+- **Les trois colonnes de préférences** `caisses_evitees`, `evite_cls`, `evite_pause` ne sont
+  toujours **pas modifiables depuis l'onglet Équipe**.
+- **`PREFERENCES_INITIALES` dans `database.py`** est le dernier endroit du code actif qui
+  contient des prénoms en dur. La migration a déjà tourné en production
+  (marqueur `parametres.preferences_semees`), la liste peut être supprimée. Proposé, jamais
+  tranché.
+- **Supprimer les colonnes mortes** `articles_minute`, `note_manager`, `forme_cls`.
+- **Vérifier les modales « Profil Pénibilité » et « Édition employé »** : elles héritent des
+  règles `.modal-header` / `.btn-close` ajoutées le 05/08, jamais regardées depuis.
+- 🔴 **Sécurité, toujours pas traité** : dépôt GitHub public, mot de passe administrateur en
+  clair dans [app.py:12](app.py:12) avec la clé de session juste au-dessus.
+- **Le chantier amont** reste la vraie marge : les horaires de présence sont produits sans
+  regard sur les besoins en caisse. L'aval est prouvé saturé.
+
 <!-- Ajouter les prochaines sessions au-dessus de cette ligne, format "### Session AAAA-MM-JJ" -->
