@@ -6,7 +6,27 @@ import database as db
 # Version de l'algorithme. Affichee dans le badge de l'interface : comme elle est
 # lue depuis CE module, elle atteste que le algo.py charge en memoire est bien le
 # bon. A incrementer a chaque modification de comportement.
-VERSION = "3.4"
+VERSION = "3.5"
+
+# Nouveautes de LA version ci-dessus, affichees une fois a la connexion. Ecrire
+# pour un lecteur non technique : ce qui change dans les plannings, pas ce qui
+# change dans le code. A remettre a jour EN MEME TEMPS que VERSION — les deux
+# sont ici cote a cote pour qu'on ne puisse pas oublier l'un en changeant
+# l'autre. Liste vide = aucune fenetre affichee.
+NOUVEAUTES = [
+    "Nouvelle vue Frise pour saisir les horaires. Chaque personne a une barre "
+    "que l'on fait glisser pour décaler sa plage, ou dont on tire les bords pour "
+    "l'allonger ou la raccourcir — sans retaper les heures. Un bouton en haut du "
+    "planning bascule entre Frise et Tableau.",
+    "Le planning généré s'affiche directement dans l'application, sous les "
+    "boutons, sans avoir à ouvrir un autre onglet.",
+    "La mission pause de l'après-midi démarre à 15h00 (15h15 au plus tard) et se "
+    "termine à 18h30.",
+    "Les caisses à monnayeur sont ouvertes à l'ouverture et à la fermeture du "
+    "magasin dès que l'effectif le permet.",
+    "Les caisses qu'une personne doit éviter sont désormais respectées sur toute "
+    "la journée.",
+]
 
 TIME_STEP = 15
 MARGE_MISSION_PAUSE_MIN = 30
@@ -19,6 +39,47 @@ CAISSES_CRITIQUES = {1, 2, 13, 14}
 # C1 et C2 doivent rester ouvertes sans la moindre interruption : des qu'elles se
 # vident, on les recomble au creneau suivant, quitte a fermer une caisse du fond.
 CAISSES_ININTERROMPUES = {1, 2}
+# Caisses equipees d'un monnayeur. Le magasin aime pouvoir faire ses fonds de
+# caisse a l'ouverture et ses prelevements a la fermeture sur ces caisses-la.
+# C1/C2/C13/C14 en ont aussi mais sont deja tenues en permanence — en pratique
+# la regle ne concerne donc que C5/C6.
+#
+# REGLE OPPORTUNISTE, PAS UNE CONTRAINTE. Elle est appliquee apres le recuit,
+# par _ouvrir_monnayeurs(), et uniquement quand elle ne coute rien : on occupe
+# quelqu'un qui n'a rien a faire, on ne deplace jamais personne. Le passage par
+# la fonction de cout du recuit a ete essaye puis abandonne le 2026-08-05 : a
+# tous les poids testes (200 a 1000) il ne corrigeait aucun creneau sur 10
+# journees reelles, mais faisait perdre une dizaine de creneaux de C13/C14 en
+# deviant la recherche. Voir SUIVI_DEVELOPPEMENT.md.
+CAISSES_MONNAYEUR = {1, 2, 5, 6, 13, 14}
+# Largeur des deux plages, en creneaux de 15 min.
+CRENEAUX_OUVERTURE = 4  # 09:00 - 10:00
+CRENEAUX_FERMETURE = 4  # 19:00 - 20:00
+# Ce que la passe accepte de payer pour ouvrir une caisse a monnayeur.
+#
+# BALAYAGE MESURE. A gauche 10 journees reelles, a droite les 17 et 18/08 que
+# l'utilisateur a corrigees a la main. ferm.KO = creneaux de fermeture ou une
+# caisse a monnayeur est fermee, c'est ce qu'on cherche a annuler.
+#
+#   toler | ferm.KO  C13C14  releves || ferm.KO  C13C14  releves
+#       0 |      40     550      159 ||      12     168       25
+#     400 |      40     550      159 ||       8     168       26
+#    1000 |      40     551      164 ||       0     168       28
+#    2000 |      40     551      164 ||       0     168       28
+#
+# 0 et 400 ne trouvent presque aucune occasion. 1000 annule completement le
+# defaut sur les deux journees corrigees, sans toucher C13/C14 (168 partout),
+# pour 3 releves sur deux jours. Sur les 10 journees d'archive il coute 5
+# releves et gagne 11 creneaux de C5/C6 ; ferm.KO y reste a 40 parce qu'il n'y a
+# physiquement personne a mettre sur C5/C6 a 19h ces jours-la.
+#
+# 2000 donne EXACTEMENT les memes chiffres que 1000 : le budget sature. Toutes
+# les occasions saisissables le sont deja a 1000, et aucun echange plus cher
+# n'attend derriere. 1000 n'est donc pas un curseur pose au hasard, c'est le
+# palier — monter davantage n'achete rien.
+#
+# Mettre 0 pour n'accepter que les echanges strictement gratuits.
+TOLERANCE_MONNAYEUR = int(os.environ.get("TOLERANCE_MONNAYEUR", "1000"))
 # Sur les autres caisses (C13 et C14 comprises) on accepte un trou plutot que de
 # creer de l'instabilite. Au-dela, on comble meme si le remplacant vient de
 # s'installer ailleurs.
@@ -33,6 +94,12 @@ DUREE_MIN_BLOC_CAISSE = 2  # 30 min
 # Quand le titulaire de la mission pause part en coupure ou termine sa journee,
 # on ne mobilise pas quelqu'un d'autre pour un reliquat trop court.
 RELAI_PAUSE_MIN = 3  # 45 min
+# Fenetre de la mission pause de l'apres-midi, en creneaux depuis 09:00. Elle
+# demarre a 15:00 (15:15 au plus tard si personne n'est libre a 15:00) et
+# s'arrete a 18:30. Regle donnee par l'utilisateur le 2026-08-05.
+DEBUT_PAUSE_APREM = 24       # 15:00
+DEBUT_PAUSE_APREM_TARD = 25  # 15:15, dernier demarrage accepte
+FIN_PAUSE_APREM = 38         # 18:30
 # Un hote ferme sa caisse une dizaine de minutes avant la fin de sa journee : on
 # peut donc installer son remplacant des son dernier creneau. La caisse est alors
 # tenue par deux personnes sur CE SEUL creneau, et la passation est fluide.
@@ -728,6 +795,111 @@ def get_continuous_block(indices_libres, start_idx):
         curseur += 1
     return compteur
 
+def _ouvrir_monnayeurs(matrice, slots, employes_presents, map_employes, presence,
+                       cache_emp):
+    """Ouvre une caisse a monnayeur sur la plage d'ouverture et sur celle de
+    fermeture — mais SEULEMENT quand ca ne derange personne.
+
+    Le mouvement employe est celui que l'utilisateur fait a la main : on ne
+    deplace pas quelqu'un, on RENOMME son bloc. Le 17/08 il a mis Ethan sur C6
+    de 09:00 a 12:45 — Ethan tenait deja C4 sur exactement ces horaires. Meme
+    personne, memes heures, autre numero de caisse : zero releve ajoutee, zero
+    horaire bouscule. A defaut, on occupe quelqu'un d'inoccupe.
+
+    Deux garde-fous encadrent la passe :
+      1. on ne prend un bloc que sur une caisse MOINS prioritaire que la caisse
+         a monnayeur visee, et jamais une CLS ni une mission pause ;
+      2. le changement n'est conserve que si evaluer_planning() ne monte pas de
+         plus de TOLERANCE_MONNAYEUR. C'est ce test qui arbitre : il facture la
+         fermeture de la caisse liberee et les releves ajoutees.
+
+    Renvoie la liste des ouvertures faites, pour le journal.
+    """
+    nb_slots, nb_emp = len(slots), len(employes_presents)
+    secondaires = sorted(CAISSES_MONNAYEUR - CAISSES_CRITIQUES)
+    ouvertes = []
+
+    def inoccupe(x, deb, fin):
+        nom = employes_presents[x]
+        return all(presence[nom][i] and not matrice[i][x] for i in range(deb, fin))
+
+    def tenue(num, deb, fin):
+        nom_caisse = f"C{num}"
+        return any(matrice[i][x] == nom_caisse
+                   for i in range(deb, fin) for x in range(nb_emp))
+
+    def bloc_cedable(x, deb, fin, num):
+        """Bornes du bloc de x s'il tient, sur TOUTE la plage, une seule caisse
+        moins prioritaire que num. None sinon."""
+        tache = matrice[deb][x]
+        if any(matrice[i][x] != tache for i in range(deb, fin)):
+            return None
+        autre = _num_caisse(tache)
+        if autre is None or sont_adjacentes(autre, num):
+            return None
+        if ORDRE_CAISSES.index(autre) <= ORDRE_CAISSES.index(num):
+            return None
+        d, f = deb, fin
+        while d > 0 and matrice[d - 1][x] == tache:
+            d -= 1
+        while f < nb_slots and matrice[f][x] == tache:
+            f += 1
+        return d, f
+
+    plages = []
+    if nb_slots > CRENEAUX_OUVERTURE:
+        plages.append(("ouverture", 0, CRENEAUX_OUVERTURE))
+    if nb_slots > CRENEAUX_FERMETURE:
+        plages.append(("fermeture", nb_slots - CRENEAUX_FERMETURE, nb_slots))
+
+    for libelle, deb, fin in plages:
+        # ASYMETRIE lue sur les journees des 17 et 18/08 corrigees a la main :
+        # a l'ouverture une seule caisse a monnayeur suffit (le 17 il ouvre C6 et
+        # laisse C5 fermee, le 18 c'est l'inverse) ; a la fermeture il les veut
+        # toutes tenues.
+        if libelle == "ouverture":
+            if any(tenue(n, deb, fin) for n in secondaires):
+                continue
+            cibles, une_seule = secondaires, True
+        else:
+            cibles = [n for n in secondaires if not tenue(n, deb, fin)]
+            une_seule = False
+
+        for num in cibles:
+            cout_avant = evaluer_planning(matrice, slots, employes_presents,
+                                          map_employes, presence, cache_emp)
+            # Un bloc a renommer d'abord — c'est le geste de l'utilisateur et il
+            # ne coute aucune releve. Sinon seulement, quelqu'un d'inoccupe.
+            candidats = []
+            for x in range(nb_emp):
+                bornes = bloc_cedable(x, deb, fin, num)
+                if bornes:
+                    candidats.append((x, bornes))
+                elif inoccupe(x, deb, fin):
+                    candidats.append((x, (deb, fin)))
+            # a possibilite egale, ne pas poser quelqu'un sur une caisse qu'il
+            # doit eviter ; le nom departage pour rester deterministe.
+            candidats.sort(key=lambda c: (
+                caisses_evitees(cache_emp.get(employes_presents[c[0]], {})).get(num, 0),
+                employes_presents[c[0]]))
+            pose = False
+            for x, (d, f) in candidats:
+                avant = [matrice[i][x] for i in range(d, f)]
+                for i in range(d, f):
+                    matrice[i][x] = f"C{num}"
+                cout_apres = evaluer_planning(matrice, slots, employes_presents,
+                                              map_employes, presence, cache_emp)
+                if cout_apres <= cout_avant + TOLERANCE_MONNAYEUR:
+                    ouvertes.append((libelle, num, employes_presents[x]))
+                    pose = True
+                    break
+                for k, i in enumerate(range(d, f)):
+                    matrice[i][x] = avant[k]
+            if pose and une_seule:
+                break
+    return ouvertes
+
+
 def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None,
              variante_pause=(0, 0), ecrire_missions=True, explorer_pauses=True):
     """variante_pause : rangs du premier titulaire de la mission pause, matin
@@ -1031,9 +1203,15 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None,
     slots_pause_aprem = math.ceil((minutes_aprem + MARGE_MISSION_PAUSE_MIN) / 15)
     if slots_pause_aprem > 0 and not est_dimanche:
         restant = slots_pause_aprem
-        cur_idx = max(24, 40 - restant)
+        # La mission pause de l'apres-midi demarre a 15:00, 15:15 au plus tard, et
+        # s'arrete a 18:30. L'ancien calcul la calait sur une fin a 19:00 et la
+        # laissait glisser jusqu'a 20:00 faute de candidat : elle demarrait en
+        # pratique a 15:45 voire 16:00. Le volume theorique de pause peut depasser
+        # la fenetre — l'utilisateur fait alors venir un collegue en renfort pour
+        # que les pauses aillent plus vite. On tronque donc, on ne deborde pas.
+        cur_idx = DEBUT_PAUSE_APREM
         premier_titulaire = True
-        while restant > 0 and cur_idx < 44:
+        while restant > 0 and cur_idx < FIN_PAUSE_APREM:
             if not premier_titulaire and restant < RELAI_PAUSE_MIN:
                 break
             candidats_disponibles = []
@@ -1058,12 +1236,15 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None,
             candidats_disponibles.sort(key=lambda c: (-score_pause_a(c), c['nom']))
             rang = variante_pause[1] if premier_titulaire else 0
             gagnant = candidats_disponibles[min(rang, len(candidats_disponibles) - 1)]
-            
-            if gagnant["nom"] == closer_assigne and score_pause_a(gagnant) < 0: 
+
+            if gagnant["nom"] == closer_assigne and score_pause_a(gagnant) < 0:
                 cur_idx += 1
                 continue
-                
-            longueur_assignee = min(gagnant['longueur'], restant)
+
+            # Tronque a 18:30 : le reliquat de pause se rattrape en renfort, il ne
+            # deborde pas sur la soiree.
+            longueur_assignee = min(gagnant['longueur'], restant,
+                                    FIN_PAUSE_APREM - cur_idx)
             assigner_tache(gagnant['nom'], "PAUSE", cur_idx, longueur_assignee)
             noter_mission(gagnant['nom'], "PAUSE")
             cur_idx += longueur_assignee
@@ -1339,6 +1520,13 @@ def run_algo(date_saisie, inputs_dict, cache_emp, essais_optim=None,
         matrice_planning = optimiser_planning(
             matrice_planning, slots, employes_presents, map_employes,
             presence, cache_emp, plan_data, date_saisie, essais_optim)
+
+    # --- ETAPE 5 : CAISSES A MONNAYEUR (opportuniste) ---
+    # Volontairement APRES le recuit et non dedans : passee par la fonction de
+    # cout, la regle deviait la recherche sans rien corriger. Ici elle ne fait
+    # qu'occuper des gens inoccupes, et seulement si le planning n'en patit pas.
+    _ouvrir_monnayeurs(matrice_planning, slots, employes_presents, map_employes,
+                       presence, cache_emp)
 
     # --- ETAPE 6 : POLYVALENT ---
     for nom in employes_presents:

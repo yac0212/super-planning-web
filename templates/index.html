@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SuperPlanning Pro</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/style.css">
+    <!-- Le numero de version sert d'anti-cache : sans lui le navigateur garde
+         l'ancien CSS apres une mise a jour et l'ecran reste celui d'avant.
+         style.css n'avait AUCUN parametre, main.js en avait un fige a 2. -->
+    <link rel="stylesheet" href="/static/css/style.css?v={{ version_algo }}">
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -55,9 +58,15 @@
                     <button class="btn btn-secondary" id="btn-save-planning"><i data-lucide="save"></i> Sauvegarder</button>
                     <button class="btn btn-secondary" id="btn-refresh-planning"><i data-lucide="refresh-cw"></i> Rafraîchir</button>
                     <div class="spacer"></div>
+                    <!-- Bascule entre la saisie au clavier et la frise. Les deux vues
+                         pilotent les MEMES champs .m1/.m2/.a1/.a2 : rien d'autre ne change. -->
+                    <div class="vue-bascule" id="vue-bascule">
+                        <button class="btn-vue" data-vue="frise"><i data-lucide="git-commit-horizontal"></i> Frise</button>
+                        <button class="btn-vue actif" data-vue="tableau"><i data-lucide="table-2"></i> Tableau</button>
+                    </div>
                 </div>
 
-                <div class="planning-grid-container glass-card">
+                <div class="planning-grid-container glass-card" id="vue-tableau">
                     <div class="grid-header">
                         <div class="col-name">NOM</div>
                         <div class="col-matin">MATIN</div>
@@ -68,9 +77,30 @@
                     </div>
                 </div>
 
+                <div class="frise-container glass-card" id="vue-frise" hidden>
+                    <div class="frise-aide">
+                        Glissez une barre pour la déplacer, ses bords pour l'allonger.
+                        Cliquez sur une piste vide pour créer une plage, double-cliquez sur une barre pour la retirer.
+                    </div>
+                    <div class="frise-echelle" id="frise-echelle"></div>
+                    <div class="frise-pistes" id="frise-pistes"></div>
+                </div>
+
                 <div class="footer-actions glass-card">
                     <button class="btn btn-warning btn-lg" id="btn-generate-pauses"><i data-lucide="coffee"></i> PAUSES</button>
                     <button class="btn btn-primary btn-lg" id="btn-generate-planning"><i data-lucide="rocket"></i> GÉNÉRER LE PLANNING PRO</button>
+                </div>
+
+                <!-- Apercu du planning genere, dans l'application. Evite l'aller-retour
+                     entre deux onglets quand on ajuste un horaire et qu'on regenere. -->
+                <div class="apercu glass-card" id="apercu" hidden>
+                    <div class="apercu-barre">
+                        <span class="apercu-titre" id="apercu-titre">Aperçu</span>
+                        <div class="spacer"></div>
+                        <button class="btn btn-secondary" id="btn-apercu-onglet"><i data-lucide="external-link"></i> Ouvrir dans un onglet</button>
+                        <button class="btn btn-secondary" id="btn-apercu-fermer"><i data-lucide="x"></i></button>
+                    </div>
+                    <iframe id="apercu-cadre" title="Aperçu du planning"></iframe>
                 </div>
             </section>
 
@@ -267,7 +297,40 @@
     </div>
 
     <!-- Modals -->
-    
+
+    <!-- MODAL NOUVEAUTES : affiche une seule fois par version, cf. main.js -->
+    {% if nouveautes %}
+    <div id="modal-nouveautes" class="modal" data-version="{{ version_algo }}">
+        <div class="modal-content glass-card nouveautes">
+            <button class="nouv-fermer" id="btn-close-nouveautes" aria-label="Fermer">
+                <i data-lucide="x"></i>
+            </button>
+
+            <div class="nouv-entete">
+                <span class="nouv-pastille"><i data-lucide="sparkles"></i></span>
+                <div>
+                    <h2>Mise à jour <span class="nouv-version">{{ version_algo }}</span></h2>
+                    <p class="nouv-intro">Ce qui change dans la génération des plannings.</p>
+                </div>
+            </div>
+
+            <ul class="nouv-liste">
+                {% for item in nouveautes %}<li>{{ item }}</li>{% endfor %}
+            </ul>
+
+            <p class="nouv-aide">
+                <strong>J'ai compris</strong> ferme la fenêtre — vos collègues la verront encore.
+                <strong>Ne plus montrer</strong> la masque définitivement sur cet ordinateur.
+            </p>
+
+            <div class="nouv-actions">
+                <button class="nouv-btn-discret" id="btn-jamais-nouveautes">Ne plus montrer</button>
+                <button class="btn-primary" id="btn-ok-nouveautes">J'ai compris</button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- MODAL PROFIL STATS -->
     <div id="modal-profil-stats" class="modal">
         <div class="modal-content glass-card" style="max-width: 800px;">
@@ -381,7 +444,7 @@
         </div>
     </div>
 
-    <script src="/static/js/main.js?v=2"></script>
+    <script src="/static/js/main.js?v={{ version_algo }}"></script>
     <script>
         lucide.createIcons();
     </script>

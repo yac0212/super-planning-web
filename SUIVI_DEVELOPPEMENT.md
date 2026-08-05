@@ -1743,4 +1743,210 @@ gagner ici sans dégrader la couverture.
 La bascule temporaire `PREFERENCE_DANS_RECUIT` qui a servi à l'A/B a été retirée ; le
 comportement est définitif et la mesure est consignée en commentaire dans `algo.py`.
 
+### Session 2026-08-05 — les caisses à monnayeur (règle métier nouvelle)
+
+**L'apprentissage.** L'utilisateur a fourni quatre fichiers : les plannings des 17 et 18/08
+tels que générés, et les mêmes corrigés à la main. Le diff a été fait programmatiquement,
+pas à l'œil.
+
+| Journée | Correction |
+|---|---|
+| 17/08 | Colondon Ethan 09:00-12:45 : **C4 → C6** (ouvrir le monnayeur) |
+| 17/08 | Berthe Sébastien 18:00-20:00 : **C3 → C6** (garder le monnayeur ouvert) |
+| 17/08 | Brassac Alexandra 10:45-11:00 : C6 → C4 (libère C6, conséquence) |
+| 17/08 | Pause matin décalée 10:30 → 10:45 ; pause après-midi avancée 15:45 → 15:15 |
+| 18/08 | Powell Laura 10:45-13:15 : C7 → **P** ; Sy Diariata 10:30-13:30 : P → **C5** |
+| 18/08 | Geay Émilie 14:15-16:00 : C5 → C3 puis P ; Timera Dado 14:00-15:45 : C3 → **C5** |
+
+**Le fait mesuré qui explique le 17/08** : le planning généré laissait le magasin ouvrir
+**sans aucune caisse à monnayeur pendant 1h45** (09:00-10:45), et fermer avec C6 fermée.
+
+Le 18/08, en revanche, un monnayeur était ouvert en permanence — et l'utilisateur a quand
+même corrigé, parce que **C5 restait fermée 3 heures** (10:30-13:30), sa titulaire ayant été
+prise par la mission pause. Mais il a laissé passer C6 fermée 75 min et C5 fermée 15 min :
+les trous courts sont tolérés.
+
+> ⚠️ La note dictée par l'utilisateur disait, pour le 18/08, « pause décalée à 16h au lieu de
+> 15h ». Les fichiers disent l'inverse (16:00 → 15:00). Les deux valeurs étaient interverties.
+
+**Décisions prises avec l'utilisateur** :
+
+- Caisses à monnayeur = **{1, 2, 5, 6, 13, 14}**. C1/C2/C13/C14 étant déjà tenues en
+  permanence, la règle ne pèse en pratique que sur **C5 et C6**.
+- Portée : **ouverture et fermeture uniquement**, pas toute la journée. L'utilisateur a
+  écarté la version « jamais fermées » pour ne pas déstabiliser des plannings qu'il juge
+  actuellement parfaits.
+
+**Précision apportée par l'utilisateur en cours de route** : *« ça ne doit pas être une règle
+absolue… si ça ne perturbe pas le planning et que ça ne nécessite pas trop de changements
+répétés, ça vaut le coup. »* C'est ce qui a fait abandonner la première implémentation.
+
+#### Première tentative : un poids dans le recuit — ABANDONNÉE
+
+`POIDS["monnayeur_ferme"]` facturé dans `evaluer_planning()`. Balayage de 200 à 1000 sur 10
+journées réelles :
+
+| poids | créneaux d'ouverture KO | créneaux de fermeture KO | C13/C14 |
+|---|---|---|---|
+| 0 | 2 | 40 | 550 |
+| 200 → 1000 | 2 | 40 | 539-541 |
+
+**Aucun créneau corrigé, à aucun poids, et une dizaine de créneaux de C13/C14 perdus.** Le
+terme de coût ne corrigeait rien mais déviait la recherche locale — la graine du recuit étant
+déterministe ([algo.py:438](algo.py:438)), ce n'était pas du bruit. Retiré.
+
+#### Implémentation retenue : `_ouvrir_monnayeurs()`, après le recuit
+
+Le geste codé est **celui que l'utilisateur fait à la main** : on ne déplace personne, on
+**renomme un bloc**. Ethan tenait déjà C4 de 09:00 à 12:45 ; il est passé sur C6 aux mêmes
+horaires. Même personne, mêmes heures, autre numéro — zéro relève ajoutée.
+
+Garde-fous : on ne prend un bloc que sur une caisse **moins prioritaire** que la caisse visée,
+jamais une CLS ni une mission pause ; et le changement n'est gardé que si `evaluer_planning()`
+ne monte pas de plus de `TOLERANCE_MONNAYEUR`.
+
+**Le réglage de la tolérance**, mesuré :
+
+| tolérance | 10 journées : ferm.KO / C13C14 / relèves | 17 et 18/08 : ferm.KO / C13C14 / relèves |
+|---|---|---|
+| 0 | 40 / 550 / 159 | 12 / 168 / 25 |
+| 400 | 40 / 550 / 159 | 8 / 168 / 26 |
+| **1000** | 40 / 551 / 164 | **0** / 168 / 28 |
+| 2000 | 40 / 551 / 164 | 0 / 168 / 28 |
+
+Retenu : **1000**. Il annule complètement le défaut sur les deux journées corrigées sans
+toucher C13/C14, pour 3 relèves sur deux jours. Sur les 10 journées d'archive : +5 relèves,
++11 créneaux de C5/C6.
+
+**2000 donne exactement les mêmes chiffres que 1000** : le budget sature. Toutes les occasions
+saisissables le sont déjà à 1000 et aucun échange plus cher n'attend derrière. Ce n'est donc
+pas un curseur posé au hasard, c'est le palier.
+
+À 0 et 400 la passe ne trouve presque aucune occasion : le geste de l'utilisateur coûte ~900
+dans le barème actuel, essentiellement une relève ajoutée sur C6.
+
+**Limite structurelle** : sur les 10 journées d'archive, `ferm.KO` reste à 40 quel que soit le
+réglage. Tenir C1, C2, C13, C14 **plus** les deux monnayeurs demande six personnes en caisse à
+19h, et elles ne sont pas là. La règle ne peut rien et s'abstient — c'est le comportement
+voulu.
+
+**Asymétrie assumée**, lue sur les deux journées corrigées : à l'**ouverture** une seule
+caisse à monnayeur suffit (le 17 il ouvre C6 et laisse C5 fermée, le 18 c'est l'inverse) ;
+à la **fermeture** il les veut toutes tenues (le 17 il rajoute quelqu'un sur C6 alors que C5
+était déjà tenue). Déduit de deux journées seulement — à reconfirmer sur les prochaines.
+
+**Vérification** (horaires de présence reconstitués depuis les fichiers exportés,
+correspondance des noms rétablie entre la casse du HTML et celle de la base) : sur le 17/08 la
+passe choisit spontanément **Berthe Sébastien pour C6 à la fermeture** — la même personne et
+la même caisse que la correction manuelle.
+
+Suite des 11 scénarios : **0 anomalie**, déterminisme préservé (0 cellule différente sous
+inversion de l'ordre de saisie).
+
+**Ce que cette règle ne corrige PAS**, et c'est un choix de périmètre assumé : le cas du
+18/08 en milieu de matinée (C5 fermée 3 h parce que sa titulaire a pris la mission pause) est
+hors des plages d'ouverture et de fermeture. Il faudrait pour cela étendre la règle à toute
+la journée — option écartée pour l'instant.
+
+**Piège méthodologique rencontré**, à ne pas refaire : comparer le fichier exporté par
+l'utilisateur (« AVANT ») à une regénération complète (« APRÈS ») ne mesure rien — les deux
+plannings diffèrent pour des raisons sans rapport avec le changement testé. Seul un A/B à code
+identique, passe activée vs neutralisée, est concluant.
+
+**Reste à traiter** : l'ancrage horaire des missions pause (matin 10:45 au lieu de 10:30,
+après-midi 15:00-15:15). L'après-midi dérive aujourd'hui vers 15:45-16:00 faute de candidat
+libre au créneau visé — c'est un défaut, pas un réglage.
+
+### Session 2026-08-05 (suite) — fenêtre imposée à la mission pause de l'après-midi
+
+**La règle**, donnée par l'utilisateur : la mission pause de l'après-midi **démarre à 15:00,
+15:15 au plus tard, et s'arrête à 18:30**. Si le volume théorique de pause dépasse cette
+fenêtre, ce n'est pas grave — un collègue vient en renfort pour que les pauses aillent plus
+vite. On tronque donc à 18:30, on ne déborde pas.
+
+**Ce que faisait l'ancien code** : `cur_idx = max(24, 40 - restant)`, c'est-à-dire un
+démarrage calé sur une **fin à 19:00**, puis un glissement `cur_idx += 1` à chaque créneau sans
+candidat, jusqu'à 20:00. Sur les journées exportées par l'utilisateur la mission démarrait en
+pratique à **15:45** (17/08) et **16:00** (18/08).
+
+**Codage** : trois constantes — `DEBUT_PAUSE_APREM` (24 = 15:00), `DEBUT_PAUSE_APREM_TARD`
+(25 = 15:15), `FIN_PAUSE_APREM` (38 = 18:30) — le départ fixé à `DEBUT_PAUSE_APREM`, la boucle
+bornée à `FIN_PAUSE_APREM`, et `longueur_assignee` tronquée par `FIN_PAUSE_APREM - cur_idx`.
+
+**Mesure sur 10 journées réelles**, à réglage identique par ailleurs :
+
+| | avant | après | |
+|---|---|---|---|
+| relèves | 164 | **156** | −8 |
+| C1 + C2 | 582 | **597** | +15 |
+| C13 + C14 | 551 | **553** | +2 |
+| C5 + C6 | 496 | **501** | +5 |
+
+**Aucune instabilité : tout s'améliore.** Les 5 journées qui ont une mission pause l'après-midi
+démarrent toutes à 15:00 et finissent à 18:30 ou avant — 0 démarrage et 0 fin hors fenêtre.
+
+L'explication tient à ce que la mission ne dérive plus vers le soir : son titulaire n'est plus
+retenu pendant le coup de feu de fin de journée, et redevient disponible pour les caisses.
+Borner la fenêtre **libère** du monde au lieu d'en contraindre.
+
+**Piège de mesure rencontré** : compter « les créneaux PAUSE après 14:00 » est faux — la
+mission du **matin** déborde couramment jusqu'à 14:15. Il faut découper les plages PAUSE
+contiguës et ne retenir que celles qui démarrent à 15:00 ou après.
+
+**Reste ouvert** : l'utilisateur a aussi indiqué que la mission pause du **matin** doit démarrer
+à **10:45**. Le code démarre toujours à 10:30 (`cur_idx = 6`) et les 10 journées mesurées le
+confirment. Non traité, à faire.
+
+### Session 2026-08-05 (suite) — fenêtre « Nouveautés » à la connexion
+
+Une fenêtre s'affiche à la première connexion suivant une mise à jour, avec le numéro de
+version et la liste de ce qui change. Elle ne réapparaît plus ensuite.
+
+**Où écrire les nouveautés** : `NOUVEAUTES`, dans [algo.py](algo.py), **juste sous `VERSION`**.
+Les deux sont côte à côte volontairement — on ne peut pas incrémenter la version en oubliant
+la note, ni l'inverse. Rédiger pour un lecteur non technique : ce qui change dans les
+plannings, pas ce qui change dans le code. **Liste vide ⇒ aucune fenêtre.**
+
+**Deux boutons, et c'est le point important.** Le poste est partagé par **quatre personnes** :
+si « J'ai compris » masquait la fenêtre pour de bon, le collègue du lendemain ne verrait jamais
+la mise à jour. D'où :
+
+| Bouton | Écrit dans | Effet |
+|---|---|---|
+| **J'ai compris** (aussi la croix, et le clic sur le fond) | `sessionStorage` | ferme pour cette session de navigateur ; **réapparaît le lendemain** |
+| **Ne plus montrer** | `localStorage` | masque définitivement sur ce poste |
+
+La clé **porte le numéro de version** (`nouveautes-3.5`), donc une nouvelle version réaffiche
+la fenêtre sans qu'on ait à purger quoi que ce soit. Si le stockage est indisponible
+(navigation privée stricte), la fenêtre s'affiche quand même — mieux vaut deux fois que jamais.
+
+#### 🔴 Deux bugs de déploiement trouvés à cette occasion
+
+Ils expliquent pourquoi le premier essai s'affichait cassé chez l'utilisateur alors que le
+rendu serveur était bon :
+
+1. **`style.css` n'avait aucun paramètre anti-cache** et `main.js` en avait un **figé à
+   `?v=2`**. Après une mise en ligne, les navigateurs gardaient donc l'ancien CSS et l'ancien
+   script indéfiniment. Corrigé : les deux portent maintenant `?v={{ version_algo }}`, donc
+   chaque changement de version casse le cache automatiquement.
+2. **`.modal-header` et `.btn-close` n'existaient pas dans la feuille de style.** Le titre et
+   la croix s'empilaient et le bouton gardait le rendu natif du navigateur (fond clair sur
+   fond sombre). Les deux règles ont été ajoutées — ⚠️ elles touchent aussi les modales
+   « Profil Pénibilité » et « Édition employé », à regarder au prochain passage.
+
+Un branchement défensif a par ailleurs été mis sur les boutons : le jour d'une mise en ligne,
+un navigateur peut avoir la page en cache et le script à jour ; un bouton manquant faisait
+alors planter **tout le reste de `main.js`**, `refreshPlanning()` compris.
+
+**Vérifié dans le navigateur**, application lancée et session ouverte : fenêtre affichée à
+1280×860 sans défilement, en mobile 375×812 sans débordement horizontal et les deux boutons
+visibles, console sans erreur. Comportement testé pas à pas — « J'ai compris » n'écrit que
+dans `sessionStorage`, la fenêtre reste masquée après rechargement dans la même session, et
+**réapparaît après vidage de `sessionStorage`** (le lendemain simulé) ; « Ne plus montrer »
+écrit dans `localStorage` et la masque même après changement de session. Côté serveur :
+4 puces sur 4 rendues, fenêtre absente quand `NOUVEAUTES` est vide.
+
+Seule la liste défile : l'en-tête et les boutons sont figés, sinon sur un écran court les deux
+boutons passent sous la ligne de flottaison.
+
 <!-- Ajouter les prochaines sessions au-dessus de cette ligne, format "### Session AAAA-MM-JJ" -->

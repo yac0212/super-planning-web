@@ -388,17 +388,41 @@ document.addEventListener('DOMContentLoaded', () => {
             date: dateStr,
             inputs: inputs
         };
-        const onglet = ouvrirOngletDifferé('Génération du planning',
-                                           'Optimisation des affectations — quelques secondes');
+        // Le resultat s'affiche desormais DANS l'application. Plus besoin
+        // d'ouvrir un onglet a l'avance pour contourner le bloqueur de fenetres :
+        // ajuster un horaire et regenerer ne fait plus perdre le contexte.
         const fermer = afficherChargement('Génération du planning',
                                           'Optimisation des affectations — quelques secondes');
         try {
             const res = await apiCall('/api/generate_planning', 'POST', data);
-            if (res && res.url) onglet.versUrl(res.url);
-            else onglet.annuler();
+            if (res && res.url) afficherApercu(res.url, `Planning du ${dateStr}`);
         } finally {
             fermer();
         }
+    });
+
+    // === APERCU INTEGRE ===
+    const apercu = document.getElementById('apercu');
+    const apercuCadre = document.getElementById('apercu-cadre');
+    let apercuUrl = null;
+
+    function afficherApercu(url, titre) {
+        apercuUrl = url;
+        document.getElementById('apercu-titre').textContent = titre || 'Aperçu';
+        // Parametre anti-cache : sans lui, regenerer la meme date reafficherait
+        // la version precedente, le nom de fichier ne changeant pas.
+        apercuCadre.src = `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`;
+        apercu.hidden = false;
+        apercu.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    document.getElementById('btn-apercu-fermer').addEventListener('click', () => {
+        apercu.hidden = true;
+        apercuCadre.src = 'about:blank';
+    });
+
+    document.getElementById('btn-apercu-onglet').addEventListener('click', () => {
+        if (apercuUrl) window.open(apercuUrl, '_blank');
     });
 
     // === INTERIM ===
@@ -952,6 +976,228 @@ document.addEventListener('DOMContentLoaded', () => {
             e.target.value = v;
         }
     });
+
+    // =======================================================================
+    // FRISE DE SAISIE
+    // -----------------------------------------------------------------------
+    // Vue alternative au tableau : une piste par salarie, une barre par plage,
+    // qu'on deplace et qu'on etire a la souris.
+    //
+    // Elle ne stocke RIEN. Elle lit et ecrit les champs .m1/.m2/.a1/.a2 des
+    // lignes .planning-row, exactement comme la saisie au clavier. C'est ce qui
+    // permet a getPlanningInputs(), a la sauvegarde et a la generation de
+    // continuer a fonctionner sans une seule modification.
+    // =======================================================================
+    const HEURE_DEBUT = 9;
+    const HEURE_FIN = 20;
+    const PAS_MIN = 15;                                    // granularite du planning
+    const TOTAL_MIN = (HEURE_FIN - HEURE_DEBUT) * 60;
+
+    function minutesDepuis(texte) {
+        const m = /^(\d{1,2}):(\d{2})$/.exec((texte || '').trim());
+        if (!m) return null;
+        return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+    }
+
+    function versTexte(minutes) {
+        const h = Math.floor(minutes / 60), m = minutes % 60;
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    }
+
+    function borner(minutes) {
+        const min = HEURE_DEBUT * 60, max = HEURE_FIN * 60;
+        return Math.max(min, Math.min(max, minutes));
+    }
+
+    function arrondir(minutes) {
+        return Math.round(minutes / PAS_MIN) * PAS_MIN;
+    }
+
+    function construireEchelle() {
+        const echelle = document.getElementById('frise-echelle');
+        let heures = '';
+        for (let h = HEURE_DEBUT; h < HEURE_FIN; h++) heures += `<span>${h}h</span>`;
+        echelle.innerHTML = `<div></div><div class="frise-heures">${heures}</div>`;
+    }
+
+    // Les deux plages d'une journee, avec les champs qui les portent.
+    const PLAGES = [
+        { cle: 'matin', debut: '.m1', fin: '.m2', defaut: ['09:00', '13:00'] },
+        { cle: 'aprem', debut: '.a1', fin: '.a2', defaut: ['14:00', '19:00'] },
+    ];
+
+    function construireFrise() {
+        const pistes = document.getElementById('frise-pistes');
+        pistes.innerHTML = '';
+        document.querySelectorAll('.planning-row').forEach(ligne => {
+            const piste = document.createElement('div');
+            piste.className = 'frise-piste';
+            piste.innerHTML = `<div class="frise-nom">${ligne.dataset.nom}</div>
+                               <div class="frise-rail"></div>`;
+            const rail = piste.querySelector('.frise-rail');
+            rail.addEventListener('mousedown', e => creerDepuisRail(e, ligne, rail));
+            pistes.appendChild(piste);
+            dessinerPiste(ligne, rail);
+        });
+    }
+
+    function dessinerPiste(ligne, rail) {
+        rail.querySelectorAll('.frise-barre').forEach(b => b.remove());
+        let vide = true;
+        PLAGES.forEach(plage => {
+            const d = minutesDepuis(ligne.querySelector(plage.debut).value);
+            const f = minutesDepuis(ligne.querySelector(plage.fin).value);
+            if (d === null || f === null || f <= d) return;
+            vide = false;
+            rail.appendChild(creerBarre(ligne, rail, plage, d, f));
+        });
+        rail.closest('.frise-piste').classList.toggle('vide', vide);
+    }
+
+    function creerBarre(ligne, rail, plage, debut, fin) {
+        const barre = document.createElement('div');
+        barre.className = `frise-barre ${plage.cle}`;
+        const gauche = (borner(debut) - HEURE_DEBUT * 60) / TOTAL_MIN * 100;
+        const largeur = (borner(fin) - borner(debut)) / TOTAL_MIN * 100;
+        barre.style.left = `${gauche}%`;
+        barre.style.width = `${largeur}%`;
+        barre.textContent = `${versTexte(debut)} – ${versTexte(fin)}`;
+        barre.innerHTML += `<div class="frise-poignee gauche"></div>
+                            <div class="frise-poignee droite"></div>`;
+        barre.addEventListener('mousedown', e => {
+            e.stopPropagation();               // sinon le rail creerait une plage
+            const bord = e.target.classList.contains('frise-poignee')
+                ? (e.target.classList.contains('gauche') ? 'debut' : 'fin')
+                : 'bloc';
+            saisirBarre(e, ligne, rail, plage, barre, bord);
+        });
+        barre.addEventListener('dblclick', e => {
+            e.stopPropagation();
+            ligne.querySelector(plage.debut).value = '';
+            ligne.querySelector(plage.fin).value = '';
+            dessinerPiste(ligne, rail);
+        });
+        return barre;
+    }
+
+    function minutesSousSouris(evenement, rail) {
+        const r = rail.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (evenement.clientX - r.left) / r.width));
+        return borner(arrondir(HEURE_DEBUT * 60 + ratio * TOTAL_MIN));
+    }
+
+    function saisirBarre(evenement, ligne, rail, plage, barre, bord) {
+        evenement.preventDefault();
+        barre.classList.add('attrapee');
+        const departSouris = minutesSousSouris(evenement, rail);
+        const depart = minutesDepuis(ligne.querySelector(plage.debut).value);
+        const arrivee = minutesDepuis(ligne.querySelector(plage.fin).value);
+
+        function bouger(e) {
+            const courant = minutesSousSouris(e, rail);
+            let d = depart, f = arrivee;
+            if (bord === 'debut') {
+                d = Math.min(courant, arrivee - PAS_MIN);
+            } else if (bord === 'fin') {
+                f = Math.max(courant, depart + PAS_MIN);
+            } else {
+                // Deplacement du bloc entier : la duree est conservee, et la barre
+                // s'arrete aux bornes de la journee au lieu d'etre ecrasee.
+                const ecart = courant - departSouris;
+                const duree = arrivee - depart;
+                d = borner(depart + ecart);
+                f = d + duree;
+                if (f > HEURE_FIN * 60) { f = HEURE_FIN * 60; d = f - duree; }
+            }
+            ligne.querySelector(plage.debut).value = versTexte(borner(d));
+            ligne.querySelector(plage.fin).value = versTexte(borner(f));
+            dessinerPiste(ligne, rail);
+        }
+
+        function relacher() {
+            document.removeEventListener('mousemove', bouger);
+            document.removeEventListener('mouseup', relacher);
+            dessinerPiste(ligne, rail);
+        }
+        document.addEventListener('mousemove', bouger);
+        document.addEventListener('mouseup', relacher);
+    }
+
+    function creerDepuisRail(evenement, ligne, rail) {
+        // Clic sur une piste vide : on cree la premiere plage libre, en la
+        // centrant sur le point clique avec la duree habituelle.
+        const plage = PLAGES.find(p => minutesDepuis(ligne.querySelector(p.debut).value) === null);
+        if (!plage) return;
+        const clic = minutesSousSouris(evenement, rail);
+        const duree = minutesDepuis(plage.defaut[1]) - minutesDepuis(plage.defaut[0]);
+        let d = borner(clic), f = d + duree;
+        if (f > HEURE_FIN * 60) { f = HEURE_FIN * 60; d = f - duree; }
+        ligne.querySelector(plage.debut).value = versTexte(borner(d));
+        ligne.querySelector(plage.fin).value = versTexte(borner(f));
+        dessinerPiste(ligne, rail);
+    }
+
+    // --- bascule entre les deux vues ---
+    document.getElementById('vue-bascule').addEventListener('click', e => {
+        const bouton = e.target.closest('.btn-vue');
+        if (!bouton) return;
+        const frise = bouton.dataset.vue === 'frise';
+        document.querySelectorAll('.btn-vue').forEach(b => b.classList.toggle('actif', b === bouton));
+        document.getElementById('vue-frise').hidden = !frise;
+        document.getElementById('vue-tableau').hidden = frise;
+        if (frise) construireFrise();          // reprend l'etat courant des champs
+    });
+
+    construireEchelle();
+
+    // --- fenetre des nouveautes : une seule fois par numero de version ---
+    // La cle porte la version, donc une nouvelle version reaffiche la fenetre
+    // sans qu'on ait a purger quoi que ce soit. Si localStorage est indisponible
+    // (navigation privee stricte), on affiche quand meme : mieux vaut la montrer
+    // deux fois que jamais.
+    // Le poste est partage par quatre personnes. « J'ai compris » ne doit donc PAS
+    // masquer la fenetre pour le collegue du lendemain : il n'ecrit que dans
+    // sessionStorage, vide a la fermeture du navigateur. Seul « Ne plus montrer »
+    // ecrit dans localStorage, qui survit.
+    const boiteNouveautes = document.getElementById('modal-nouveautes');
+    if (boiteNouveautes) {
+        const cle = 'nouveautes-' + boiteNouveautes.dataset.version;
+
+        const lu = (magasin) => {
+            try { return magasin.getItem(cle) === '1'; } catch (e) { return false; }
+        };
+        const ecrire = (magasin) => {
+            try { magasin.setItem(cle, '1'); } catch (e) { /* sans effet */ }
+        };
+
+        // En cas de stockage indisponible (navigation privee stricte), les deux
+        // lectures renvoient false et la fenetre s'affiche : mieux vaut la montrer
+        // une fois de trop que de rater une mise a jour.
+        const masquee = lu(window.localStorage) || lu(window.sessionStorage);
+
+        const fermer = (definitif) => {
+            boiteNouveautes.classList.remove('active');
+            ecrire(definitif ? window.localStorage : window.sessionStorage);
+        };
+
+        if (!masquee) {
+            boiteNouveautes.classList.add('active');
+            if (window.lucide) lucide.createIcons();
+        }
+        // Branchement defensif : le jour d'une mise en ligne, un navigateur peut
+        // avoir la page en cache et le script a jour. Un bouton manquant faisait
+        // alors planter tout le reste du fichier, y compris refreshPlanning().
+        const brancher = (id, definitif) => {
+            const b = document.getElementById(id);
+            if (b) b.addEventListener('click', () => fermer(definitif));
+        };
+        brancher('btn-ok-nouveautes', false);
+        brancher('btn-jamais-nouveautes', true);
+        brancher('btn-close-nouveautes', false);
+        boiteNouveautes.addEventListener('click', e => {
+            if (e.target === boiteNouveautes) fermer(false);   // clic sur le fond
+        });
+    }
 
     // Init
     refreshPlanning();

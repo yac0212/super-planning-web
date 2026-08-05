@@ -66,10 +66,53 @@ Ordre de priorité d'ouverture : **1, 2, 13, 14, 5, 6, 3, 4, 7, 8, 9, 10, 11, 12
 | **S1** | C13 et C14 : trou toléré | ≤ 6 créneaux (1h30) |
 | **S2** | Autres caisses : ouvertes si quelqu'un est libre, sinon fermées | — |
 | **S3** | Récompense de couverture graduée selon la priorité | C1/C2 = 800, C13/C14 = 400, autres = 40 + 12×rang |
+| **S4** | Caisses à **monnayeur** tenues à l'ouverture et à la fermeture | opportuniste, budget 1000 |
 
 **S3 est un correctif.** Avec une récompense uniforme, l'optimiseur ouvrait C10,
 C11 et C12 pendant que C5 et C6 restaient fermées. La graduation est ce qui fait
 respecter l'ordre.
+
+**S4 — les caisses à monnayeur** (ajoutée le 2026-08-05). Caisses concernées :
+**1, 2, 5, 6, 13, 14**. Les quatre critiques étant déjà tenues en permanence, la
+règle ne pèse en pratique que sur **C5 et C6**. Plages : les 4 premiers créneaux
+(09:00-10:00) et les 4 derniers (19:00-20:00).
+
+L'asymétrie est **voulue** et lue sur deux journées corrigées à la main par
+l'utilisateur (17 et 18/08) :
+
+- à l'**ouverture**, une seule caisse à monnayeur suffit — le 17 il ouvre C6 et
+  laisse C5 fermée, le 18 c'est l'inverse ;
+- à la **fermeture**, il les veut **toutes** tenues — le 17 il rajoute quelqu'un
+  sur C6 alors que C5 était déjà tenue.
+
+Déduit de deux journées seulement : à reconfirmer sur les suivantes.
+
+**Ce n'est PAS une contrainte**, à la demande explicite de l'utilisateur : *« ça
+ne doit pas être une règle absolue… si ça ne perturbe pas le planning et que ça
+ne nécessite pas trop de changements répétés, ça vaut le coup. »*
+
+Elle est donc appliquée **hors du recuit**, par `_ouvrir_monnayeurs()` juste
+après l'optimisation globale, et le geste est celui de l'utilisateur : on ne
+déplace personne, on **renomme un bloc existant** — même personne, mêmes
+horaires, autre numéro de caisse. Le bloc n'est pris que sur une caisse moins
+prioritaire, jamais sur une CLS ni une mission pause, et le changement n'est
+gardé que si `evaluer_planning()` ne monte pas de plus de `TOLERANCE_MONNAYEUR`
+(1000, soit environ une passation propre). Mettre 0 pour n'accepter que les
+échanges strictement gratuits.
+
+**Le passage par la fonction de coût du recuit a été essayé et abandonné** le
+2026-08-05 : à tous les poids testés (200 à 1000) il ne corrigeait aucun créneau
+sur 10 journées réelles tout en faisant perdre une dizaine de créneaux de
+C13/C14. Voir SUIVI_DEVELOPPEMENT.md.
+
+**Limite structurelle** : les jours de faible effectif, tenir C1, C2, C13, C14
+**plus** les deux monnayeurs demande six personnes en caisse à 19h. Quand elles
+ne sont pas là, la règle s'abstient — c'est voulu.
+
+**Hors périmètre, assumé** : une caisse à monnayeur peut rester fermée plusieurs
+heures **en milieu de journée** sans que rien ne la protège. C'est arrivé le
+18/08 (C5 fermée 3 h, sa titulaire ayant été prise par la mission pause). Étendre
+S4 à toute la journée a été écarté pour ne pas déstabiliser les plannings actuels.
 
 ---
 
@@ -136,8 +179,24 @@ créneaux_matin = ceil((somme des heures de présence du matin × 3 + 30) / 15)
 ```
 
 - Matin : démarre créneau 6 (10:30), s'arrête avant le créneau 20 (14:00)
-- Après-midi : démarre `max(24, 40 − durée)`, s'arrête avant le créneau 44
+- **S12** — Après-midi : **fenêtre imposée 15:00 → 18:30**. Démarre au créneau 24 (15:00),
+  25 (15:15) au plus tard si personne n'est libre à 15:00 ; s'arrête au créneau 38 (18:30).
+  `DEBUT_PAUSE_APREM`, `DEBUT_PAUSE_APREM_TARD`, `FIN_PAUSE_APREM`.
 - **S11** — pas de relais si le reliquat fait moins de 45 min (`RELAI_PAUSE_MIN`)
+
+**S12 en détail** (règle donnée par l'utilisateur le 2026-08-05). Si le volume théorique de
+pause dépasse la fenêtre, **on tronque** : l'utilisateur fait venir un collègue en renfort pour
+que les pauses aillent plus vite. Le débordement sur la soirée n'est pas une option.
+
+L'ancien calcul (`max(24, 40 − durée)`) calait le départ sur une **fin à 19:00** puis laissait
+glisser jusqu'à 20:00 faute de candidat : la mission démarrait en pratique à 15:45 ou 16:00.
+
+Mesuré sur 10 journées réelles, avant → après : relèves 164 → **156**, C1/C2 582 → **597**,
+C13/C14 551 → **553**, C5/C6 496 → **501**. **Tout s'améliore** : la mission ne dérivant plus
+vers le soir, son titulaire redevient disponible pour les caisses en fin de journée.
+
+⚠️ **Le matin n'est pas aligné.** L'utilisateur a indiqué que la mission du matin doit démarrer
+à **10:45** ; le code démarre toujours à 10:30. À traiter.
 
 Priorité (score décroissant) :
 
